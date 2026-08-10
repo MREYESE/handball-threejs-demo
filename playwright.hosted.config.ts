@@ -27,7 +27,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 960, height: 540 },
       },
-      testMatch: /functional\.spec\.ts/,
+      testMatch: /hosted\.spec\.ts/,
     },
   ],
 });

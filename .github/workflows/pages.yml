@@ -98,7 +98,6 @@ jobs:
         env:
           PLAYWRIGHT_HOSTED_BASE_URL: ${{ needs.deploy.outputs.page_url }}
         run: >-
-          npx playwright test tests/e2e/functional.spec.ts
+          npx playwright test tests/e2e/hosted.spec.ts
           --config playwright.hosted.config.ts
           --project hosted-functional
-          --grep "a real accepted pointer swipe resolves exactly once and re-enables input"
