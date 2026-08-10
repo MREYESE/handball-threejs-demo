@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "policyName": "balanced-arena-gameplay-v1",
+  "defaultGameplayPreset": "balanced",
+  "primaryVisualCandidatePreset": "balanced",
+  "presets": {
+    "balanced": {
+      "runtimeRole": "default_gameplay",
+      "maximumPixelRatio": 1.25,
+      "shadowMapSizeMaximum": 1024,
+      "crowdInstancesMaximum": 240,
+      "animatedCrowdInstancesMaximum": 48,
+      "crowdAnimationMaximumHz": 10,
+      "proceduralTextureResolutionMaximum": 128,
+      "environmentMapSizeMaximum": 96,
+      "shadowCastingLightsMaximum": 1,
+      "postProcessing": false,
+      "frustumCullingRequired": true
+    },
+    "high": {
+      "runtimeRole": "explicit_opt_in_gameplay",
+      "maximumPixelRatio": 1.5,
+      "shadowMapSizeMaximum": 1024,
+      "crowdInstancesMaximum": 480,
+      "animatedCrowdInstancesMaximum": 96,
+      "crowdAnimationMaximumHz": 12,
+      "proceduralTextureResolutionMaximum": 192,
+      "environmentMapSizeMaximum": 128,
+      "shadowCastingLightsMaximum": 1,
+      "postProcessing": false,
+      "frustumCullingRequired": true
+    },
+    "capture": {
+      "runtimeRole": "offline_capture_only",
+      "maximumPixelRatio": 1,
+      "shadowMapSizeMaximum": 2048,
+      "crowdInstancesMaximum": 960,
+      "animatedCrowdInstancesMaximum": 0,
+      "crowdAnimationMaximumHz": 0,
+      "proceduralTextureResolutionMaximum": 256,
+      "environmentMapSizeMaximum": 256,
+      "shadowCastingLightsMaximum": 1,
+      "postProcessing": true,
+      "frustumCullingRequired": true
+    }
+  },
+  "interaction": {
+    "minimumDurationMilliseconds": 30,
+    "maximumSampleGapMilliseconds": 250,
+    "renderFramesDuringPointerCaptureMinimum": 1,
+    "mouseRequired": true,
+    "touchRequired": true,
+    "renderSuspensionDuringInputForbidden": true,
+    "directApplicationOrDomainBypassForbidden": true,
+    "nativeChromiumInputBurstRequired": false,
+    "customInputTimestampsForbidden": true,
+    "hostControlledGestureDurationMilliseconds": 80,
+    "serialPlaywrightMoveStepsForbidden": true,
+    "nativeChromiumMinimalGestureRequired": true,
+    "coalescedPointerSamplesRequiredWhenAvailable": true,
+    "nativeMovementEventsPerGesture": 1,
+    "defaultHostControlledGestureDurationMilliseconds": 80,
+    "qaRenderObservationGestureDurationMilliseconds": 180,
+    "maximumConfigurableHostGestureDurationMilliseconds": 220,
+    "functionalInputSemanticsRequirePresentedFrame": false,
+    "dedicatedRendererInputObservationRequired": true,
+    "profileRendererInputObservationRequired": true,
+    "rendererObservationGestureDurationMilliseconds": 180
+  },
+  "balancedComplexity": {
+    "drawCallsMaximum": 180,
+    "trianglesMaximum": 750000,
+    "shadowCastingLightsMaximum": 1,
+    "shaderProgramsStableDuringMeasuredShot": true
+  },
+  "hardwarePerformanceTargets": {
+    "medianFrameMillisecondsMaximum": 16.7,
+    "p95FrameMillisecondsMaximum": 40,
+    "p99FrameMillisecondsMaximum": 60,
+    "worstFrameMillisecondsMaximum": 120,
+    "bootToReadyMillisecondsMaximum": 5000
+  },
+  "softwareRendererPolicy": {
+    "requiredProfileStatus": "unverified_software_renderer",
+    "functionalAndComplexityGatesRemainBlocking": true,
+    "mayProceedToDraftPullRequest": true,
+    "productionReadyClaimAllowed": false
+  },
+  "captureContract": {
+    "primaryCandidate": "apps/handball-threejs-demo/artifacts/captures/hero-ball-flight-1920x1080.png",
+    "primaryCandidateUsesPreset": "balanced",
+    "promotionalCapture": "apps/handball-threejs-demo/artifacts/captures/hero-promo-capture-1920x1080.png",
+    "promotionalCaptureUsesPreset": "capture"
+  }
+}
