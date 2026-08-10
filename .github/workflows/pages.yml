@@ -63,6 +63,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -70,3 +72,33 @@ jobs:
       - name: Deploy artifact
         id: deployment
         uses: actions/deploy-pages@v4
+
+  validate-hosted-runtime:
+    name: Validate hosted pointer-to-shot runtime
+    if: github.event_name != 'pull_request'
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Exercise real hosted pointer-to-shot path
+        env:
+          PLAYWRIGHT_HOSTED_BASE_URL: ${{ needs.deploy.outputs.page_url }}
+        run: >-
+          npx playwright test tests/e2e/functional.spec.ts
+          --config playwright.hosted.config.ts
+          --project hosted-functional
+          --grep "a real accepted pointer swipe resolves exactly once and re-enables input"
