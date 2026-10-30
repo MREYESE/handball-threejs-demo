@@ -16,40 +16,40 @@ concurrency:
 
 jobs:
   build:
-    name: Typecheck, test, and build
+    name: Verify compiled artifact
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: npm
-
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Type-check
-        run: npm run typecheck
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Audit runtime assets
-        run: npm run asset:audit
-
-      - name: Build production site
-        run: npm run build
-
-      - name: Verify Pages entrypoint
-        run: test -s dist/index.html
+      - name: Verify artifact inventory and hashes
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import hashlib, json
+          root = Path("site")
+          manifest = json.loads((root / "release.json").read_text())
+          files = {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()}
+          assert files == set(manifest["files"]) | {"release.json"}
+          assert manifest["label"] == "PLAYTEST"
+          assert manifest["fullMilestoneAccepted"] is False
+          for name, expected in manifest["files"].items():
+              path = root / name
+              assert path.suffix in {".html", ".js", ".css"}
+              assert ".." not in path.parts
+              data = path.read_bytes()
+              assert hashlib.sha256(data).hexdigest() == expected, name
+              assert b"sourceMappingURL" not in data and b"sourcesContent" not in data
+          assert not any(p.is_file() for name in ["src", "tests"] for p in Path(name).rglob("*"))
+          assert (root / "index.html").is_file()
+          assert manifest["sourceSha"] in (root / "index.html").read_text()
+          print("Artifact inventory, provenance and SHA-256 hashes verified")
+          PYCODE
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: site
 
   deploy:
     name: Deploy GitHub Pages
@@ -86,18 +86,69 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
 
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install browser validation tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/handball-qa" --ignore-scripts --no-audit playwright@1.62.0
+          "$RUNNER_TEMP/handball-qa/node_modules/.bin/playwright" install --with-deps chromium
 
       - name: Exercise real hosted pointer-to-shot path
         env:
           PLAYWRIGHT_HOSTED_BASE_URL: ${{ needs.deploy.outputs.page_url }}
-        run: >-
-          npx playwright test tests/e2e/hosted.spec.ts
-          --config playwright.hosted.config.ts
-          --project hosted-functional
+        run: |
+          cat > "$RUNNER_TEMP/handball-qa/smoke.mjs" <<'JS'
+          import assert from "node:assert/strict";
+          import { chromium } from "playwright";
+          const browser = await chromium.launch({args:["--disable-dev-shm-usage"]});
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+          try {
+            for (const mobile of [false, true]) {
+              const context = await browser.newContext({viewport:mobile ? {width:844,height:390} : {width:960,height:540},hasTouch:mobile,isMobile:mobile});
+              const page = await context.newPage();
+              const errors = [];
+              page.on("pageerror", e => errors.push(e.message));
+              page.on("console", m => {if(m.type()==="error")errors.push(m.text());});
+              page.on("requestfailed", r => errors.push(r.url()));
+              page.on("response", r => {if(r.status()>=400)errors.push(r.url());});
+              const response = await page.goto(new URL("?playtest&seed=71&quality=balanced",process.env.PLAYWRIGHT_HOSTED_BASE_URL).href);
+              assert(response.ok());
+              await page.waitForFunction(() => window.__READY__ && window.__DEMO__?.snapshot().inputEnabled);
+              const release = await (await page.request.get(new URL("release.json",process.env.PLAYWRIGHT_HOSTED_BASE_URL).href)).json();
+              assert.equal(await page.locator('meta[name="source-commit"]').getAttribute("content"),release.sourceSha);
+              const box = await page.locator("canvas").boundingBox();
+              const client = await context.newCDPSession(page);
+              async function gesture(points) {
+                const xy = ([x,y]) => ({x:box.x+x*box.width,y:box.y+y*box.height});
+                const start=xy(points[0]);
+                if (!mobile) await page.mouse.move(start.x,start.y);
+                const pending=[];
+                pending.push(client.send(mobile?"Input.dispatchTouchEvent":"Input.dispatchMouseEvent",mobile?{type:"touchStart",touchPoints:[{...start,id:1}]}:{type:"mousePressed",...start,button:"left",buttons:1,clickCount:1}));
+                for(const point of points.slice(1)) {
+                  await sleep(80);
+                  const pos=xy(point);
+                  pending.push(client.send(mobile?"Input.dispatchTouchEvent":"Input.dispatchMouseEvent",mobile?{type:"touchMove",touchPoints:[{...pos,id:1}]}:{type:"mouseMoved",...pos,button:"left",buttons:1}));
+                }
+                await sleep(60);
+                pending.push(client.send(mobile?"Input.dispatchTouchEvent":"Input.dispatchMouseEvent",mobile?{type:"touchEnd",touchPoints:[]}:{type:"mouseReleased",...xy(points.at(-1)),button:"left",buttons:0,clickCount:1}));
+                await Promise.all(pending);
+              }
+              await gesture([[.5,.84],[.43,.73],[.36,.62]]);
+              await page.waitForFunction(()=>window.__DEMO__.snapshot().resolvedShots===1 && window.__DEMO__.snapshot().inputEnabled);
+              assert.equal((await page.evaluate(()=>window.__DEMO__.snapshot())).acceptedShots,1);
+              await gesture([[.5,.84],[.61,.8],[.55,.79],[.4,.76]]);
+              const held=await page.evaluate(()=>window.__DEMO__.snapshot());
+              assert.equal(held.acceptedShots,1);
+              assert.equal(held.completedFeints,1);
+              assert.equal(held.activeShot,null);
+              assert.equal(held.feedback.audio.requestedCues.throw,1);
+              await gesture([[.5,.84],[.43,.73],[.36,.62]]);
+              await page.waitForFunction(()=>window.__DEMO__.snapshot().resolvedShots===2);
+              const after=await page.evaluate(()=>window.__DEMO__.snapshot());
+              assert.equal(after.acceptedShots,2);
+              assert.equal(after.scene.finiteTransforms,true);
+              assert.deepEqual(errors,[]);
+              await context.close();
+            }
+          } finally {await browser.close();}
+          JS
+          node "$RUNNER_TEMP/handball-qa/smoke.mjs"

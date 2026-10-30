@@ -1,0 +1,15 @@
+{
+  "label": "PLAYTEST",
+  "sourceSha": "d14a427de2893349623ac0aacd5c3e533f620832",
+  "fullMilestoneAccepted": false,
+  "files": {
+    "index.html": "1ade88cf35715d5f7bee1a6ed63712ababc784a54d05a5e7768afb2308d26eb5",
+    "assets/index-BpFIrPBs.js": "366219072854cd71ce4abcf6f893c5f2aec6170cba1c3f3f30942468fe5f5331",
+    "assets/index-Bg7AAJqy.css": "ff7d2f9f51e95c9df32ab08c078d5430afef09349e9fbc433b494597eec7ac87"
+  },
+  "knownLimitations": [
+    "Five unresolved broader browser checks; local hosted smoke previously passed 3/3",
+    "Capture reference and profiling gates unresolved",
+    "Human desktop/mobile acceptance pending"
+  ]
+}
