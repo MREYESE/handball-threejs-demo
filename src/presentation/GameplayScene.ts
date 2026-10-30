@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { STANDARD_GOAL_CONFIG } from "../config/defaults";
 import type { QualityConfig } from "../core/Quality";
 import type { Disposable } from "../core/ResourceTracker";
 import {
@@ -46,8 +47,16 @@ import {
   withSurfaceTextures,
 } from "./materials/ProceduralMaterials";
 
-export type KeeperVisualPhase = "READY" | "PREPARE" | "DIVE" | "HOLD" | "RETURN";
-export type ShooterVisualPhase = "READY" | "RELEASE" | "RECOVER";
+export type KeeperVisualPhase =
+  | "READY"
+  | "READ"
+  | "COMMIT"
+  | "PREPARE"
+  | "DIVE"
+  | "HOLD"
+  | "RETURN"
+  | "RECOVER";
+export type ShooterVisualPhase = "READY" | "FEINT" | "RELEASE" | "RECOVER";
 
 export interface GameplayVisualState {
   readonly ballPosition: Vec3;
@@ -55,7 +64,12 @@ export interface GameplayVisualState {
   readonly keeperZone: GoalkeeperZone | null;
   readonly keeperDiveProgress: number;
   readonly keeperPhase: KeeperVisualPhase;
+  readonly keeperCommitted?: boolean;
   readonly shooterPhase: ShooterVisualPhase;
+  readonly feintDirection?: number;
+  readonly feintAmount?: number;
+  readonly shotCategory?: "DIRECT" | "LOB" | "BOUNCE";
+  readonly sideSpin?: number;
   readonly shotProgress: number;
   readonly resultProgress: number;
   readonly outcome: ShotOutcome | null;
@@ -74,6 +88,8 @@ export interface SceneDiagnostics {
   readonly cameraProfile: LockedCameraProfile;
   readonly goalProjection: ProjectedBounds;
   readonly shooterProjection: ProjectedBounds;
+  readonly ballWorldPosition: Vec3;
+  readonly shooterHandWorldPosition: Vec3;
   readonly ballProjection: Readonly<{
     x: number;
     y: number;
@@ -86,6 +102,7 @@ export interface SceneDiagnostics {
   readonly shooterPoseName: string;
   readonly shooterReleaseAmount: number;
   readonly goalkeeperAnimationStage: GoalkeeperAnimationStage;
+  readonly goalkeeperVisualPhase: KeeperVisualPhase;
   readonly goalkeeperPoseName: string;
   readonly goalkeeperZone: GoalkeeperZone | null;
   readonly goalkeeperDiveAmount: number;
@@ -131,11 +148,11 @@ export interface SceneDiagnostics {
   readonly gpuTextures: number;
 }
 
-const GOAL_Z = 7;
-const GOAL_WIDTH = 3;
-const GOAL_HEIGHT = 2;
+const GOAL_Z = STANDARD_GOAL_CONFIG.center.z;
+const GOAL_WIDTH = STANDARD_GOAL_CONFIG.widthMeters;
+const GOAL_HEIGHT = STANDARD_GOAL_CONFIG.heightMeters;
 const GOAL_DEPTH = 0.8;
-const POST_THICKNESS = 0.12;
+const POST_THICKNESS = STANDARD_GOAL_CONFIG.postThicknessMeters;
 const GOAL_AREA_RADIUS = 6;
 const PENALTY_LINE_DISTANCE = 7;
 const FREE_THROW_RADIUS = 9;
@@ -159,6 +176,8 @@ export class GameplayScene implements Disposable {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly canvas: HTMLCanvasElement & {
     __HANDBALL_PRESENTED_FRAMES__?: number;
+    /** Bounded pairs of real render entry/return times; never GPU completion. */
+    __HANDBALL_RENDER_INTERVALS__?: Float64Array;
   };
   private readonly ball: THREE.Mesh;
   private readonly arcadeEffects: ArcadeEffects;
@@ -180,6 +199,7 @@ export class GameplayScene implements Disposable {
   private shooterAnimationStage: ShooterAnimationStage = "IDLE";
   private shooterReleaseAmount = 0;
   private goalkeeperAnimationStage: GoalkeeperAnimationStage = "READY";
+  private goalkeeperVisualPhase: KeeperVisualPhase = "READY";
   private goalkeeperDiveAmount = 0;
   private goalkeeperZone: GoalkeeperZone | null = null;
   private readonly goalkeeperSaveVolumeCenter = new THREE.Vector3(0, 1, GOAL_Z);
@@ -199,6 +219,7 @@ export class GameplayScene implements Disposable {
     this.quality = quality;
     this.canvas = canvas;
     this.canvas.__HANDBALL_PRESENTED_FRAMES__ = 0;
+    this.canvas.__HANDBALL_RENDER_INTERVALS__ = new Float64Array(512 * 2);
     this.staticLayerCache = new LockedStaticLayerCache(quality.name);
     this.staticRoot.name = "LockedArenaStaticLayerRoot";
     this.staticRoot.userData["cachedStaticLayer"] = true;
@@ -380,8 +401,13 @@ export class GameplayScene implements Disposable {
       state.shotProgress,
       state.resultProgress,
       state.simulationSeconds,
+      state.feintDirection, state.feintAmount, state.shotCategory, state.sideSpin,
     );
     this.shooter.applyPose(shooterSample.pose);
+    if (state.shooterPhase === "FEINT" || state.shooterPhase === "READY") {
+      const hand = this.shooter.throwingHandWorld();
+      this.ball.position.set(hand.x, hand.y, hand.z);
+    }
     this.shooterAnimationStage = shooterSample.stage;
     this.shooterReleaseAmount = shooterSample.releaseAmount;
 
@@ -407,9 +433,11 @@ export class GameplayScene implements Disposable {
       state.resultProgress,
       state.outcome,
       state.simulationSeconds,
+      state.keeperCommitted ?? false,
     );
     this.goalkeeper.applyPose(goalkeeperSample.pose);
     this.goalkeeperAnimationStage = goalkeeperSample.stage;
+    this.goalkeeperVisualPhase = state.keeperPhase;
     this.goalkeeperDiveAmount = goalkeeperSample.diveAmount;
     this.goalkeeperZone = state.keeperZone;
     this.goalkeeperSaveVolumeCenter.set(
@@ -459,6 +487,10 @@ export class GameplayScene implements Disposable {
     this.lastPresentationMilliseconds = renderStarted;
     this.presentedFrames += 1;
     this.canvas.__HANDBALL_PRESENTED_FRAMES__ = this.presentedFrames;
+    const intervals = this.canvas.__HANDBALL_RENDER_INTERVALS__!;
+    const offset = ((this.presentedFrames - 1) % 512) * 2;
+    intervals[offset] = renderStarted;
+    intervals[offset + 1] = performance.now();
     this.performanceProbe.recordRender(
       performance.now() - renderStarted,
       frameMilliseconds,
@@ -543,6 +575,8 @@ export class GameplayScene implements Disposable {
       goalProjection,
       shooterProjection,
       ballProjection,
+      ballWorldPosition: Object.freeze({ x:this.ball.position.x, y:this.ball.position.y, z:this.ball.position.z }),
+      shooterHandWorldPosition: shooterDiagnostics.rightHandWorld,
       goalCentered:
         goalProjection.fullyVisible &&
         Math.abs(goalProjection.centerX) <= 0.08 &&
@@ -558,6 +592,7 @@ export class GameplayScene implements Disposable {
       shooterPoseName: shooterDiagnostics.poseName,
       shooterReleaseAmount: this.shooterReleaseAmount,
       goalkeeperAnimationStage: this.goalkeeperAnimationStage,
+      goalkeeperVisualPhase: this.goalkeeperVisualPhase,
       goalkeeperPoseName: goalkeeperDiagnostics.poseName,
       goalkeeperZone: this.goalkeeperZone,
       goalkeeperDiveAmount: this.goalkeeperDiveAmount,
@@ -636,6 +671,7 @@ export class GameplayScene implements Disposable {
     this.renderer.dispose();
     this.applyCanvasImpulse(0, 0);
     delete this.canvas.__HANDBALL_PRESENTED_FRAMES__;
+    delete this.canvas.__HANDBALL_RENDER_INTERVALS__;
   }
 
   private applyCanvasImpulse(xPixels: number, yPixels: number): void {

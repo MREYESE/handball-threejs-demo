@@ -43,3 +43,4 @@ export class SeededRng {
     return new SeededRng(hashLabel(this.initialSeed >>> 0, label));
   }
 }
+

@@ -1,3 +1,4 @@
+import { verticalTurn } from "./verticalTurn";
 import type { GestureConfig } from "../../config/types";
 import { distance2, lerp, type Vec2 } from "../math";
 import type {
@@ -60,6 +61,16 @@ export function preprocessGesture(
   if (samples.length < 2) {
     return reject("TOO_FEW_POINTS");
   }
+  if (
+    samples.some(
+      (sample) =>
+        !Number.isFinite(sample.positionPixels.x) ||
+        !Number.isFinite(sample.positionPixels.y) ||
+        !Number.isFinite(sample.timeSeconds),
+    )
+  ) {
+    return reject("NON_FINITE_SAMPLE");
+  }
   if (options.inputEnabled === false) {
     return reject("INPUT_DISABLED");
   }
@@ -111,15 +122,17 @@ export function preprocessGesture(
   if (durationSeconds > config.maximumDurationSeconds) {
     return reject("DURATION_TOO_LONG");
   }
-  if (distance2(first.positionPixels, last.positionPixels) < config.minimumDistancePixels) {
-    return reject("DISTANCE_TOO_SHORT");
+  const points = samples.map((sample) => normalizePoint(sample, safeArea, first.timeSeconds));
+  if (!options.nonShootingFeint && distance2(first.positionPixels, last.positionPixels) < config.minimumDistancePixels) {
+    const turn = verticalTurn(points.map(point => point.safeAreaPosition01));
+    let pathPixels = 0;
+    for (let i=1;i<samples.length;i++) pathPixels += distance2(samples[i-1]!.positionPixels,samples[i]!.positionPixels);
+    if ((!turn.vee && !turn.hook) || pathPixels < config.minimumDistancePixels) return reject("DISTANCE_TOO_SHORT");
   }
 
   return Object.freeze({
     accepted: true,
-    points: Object.freeze(
-      samples.map((sample) => normalizePoint(sample, safeArea, first.timeSeconds)),
-    ),
+    points: Object.freeze(points),
     durationSeconds,
   });
 }

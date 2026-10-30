@@ -28,3 +28,4 @@ export function evaluateStandardTrajectory(
     z: lerp(release.z, target.z, progress),
   });
 }
+

@@ -2,6 +2,7 @@ import type { GoalkeeperZone } from "../../domain/goalkeeper/zones";
 import type { ShotOutcome } from "../../domain/shot/outcome";
 
 export type ShooterAnimationStage =
+  | "FEINT"
   | "IDLE"
   | "AIM"
   | "RELEASE"
@@ -158,6 +159,20 @@ const KEEPER_ANTICIPATION_POSE: HumanoidPose = Object.freeze({
   handSpread: 0.2,
 });
 
+// A centered guard communicates that the keeper is waiting, rather than leaning
+// toward an uncommitted observation. This is presentation, never a save volume.
+const KEEPER_WAIT_POSE: HumanoidPose = Object.freeze({
+  ...KEEPER_ANTICIPATION_POSE,
+  name: "keeper-hold",
+  bodyLeanX: 0.12,
+  leftHand: Object.freeze({ x: -0.64, y: 1.4, z: 0.24 }),
+  rightHand: Object.freeze({ x: 0.64, y: 1.4, z: 0.24 }),
+  leftElbowPole: Object.freeze({ x: -0.76, y: 1.22, z: 0.18 }),
+  rightElbowPole: Object.freeze({ x: 0.76, y: 1.22, z: 0.18 }),
+});
+
+const KEEPER_COMMIT_AMOUNT = 0.42;
+
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
@@ -223,11 +238,40 @@ function shooterIdlePose(simulationSeconds: number): HumanoidPose {
 }
 
 export function shooterPoseAt(
-  phase: "READY" | "RELEASE" | "RECOVER",
+  phase: "READY" | "FEINT" | "RELEASE" | "RECOVER",
   shotProgress: number,
   resultProgress: number,
   simulationSeconds: number,
+  feintDirection = 0,
+  feintAmount = 0,
+  category: "DIRECT" | "LOB" | "BOUNCE" = "DIRECT",
+  sideSpin = 0,
 ): ShooterPoseSample {
+  if (phase === "FEINT") {
+    const amount = clamp01(feintAmount);
+    const base = shooterIdlePose(simulationSeconds);
+    return { stage: amount > 0 ? "FEINT" : "IDLE", releaseAmount: 0, pose: {
+      ...base, name: amount > 0 ? "shooter-feint-held" : "shooter-feint-ready",
+      bodyTwistY: base.bodyTwistY + feintDirection * amount * 0.22,
+      bodyLeanZ: base.bodyLeanZ - feintDirection * amount * 0.07,
+      // Cocked holding position stays inside the existing landscape camera.
+      rightHand: { x: 0.55 + feintDirection * amount * 0.09,
+        y: 1.5 + amount * 0.18, z: 0.65 + amount * 0.1 },
+      rightElbowPole: { ...base.rightElbowPole, y: base.rightElbowPole.y + amount * 0.2 },
+    } };
+  }
+  if (phase === "RELEASE" && (category !== "DIRECT" || Math.abs(sideSpin) > 0.05)) {
+    const sample = shooterPoseAt(phase, shotProgress, resultProgress, simulationSeconds);
+    const lift = category === "LOB" ? 0.28 : category === "BOUNCE" ? -0.22 : 0;
+    return { ...sample, pose: { ...sample.pose,
+      name: `shooter-${category.toLowerCase()}-${Math.abs(sideSpin) > 0.05 ? "rosca" : sample.stage.toLowerCase()}`,
+      bodyTwistY: sample.pose.bodyTwistY + sideSpin * 0.22,
+      rightHand: { ...sample.pose.rightHand, y: sample.pose.rightHand.y + lift,
+        x: sample.pose.rightHand.x + sideSpin * 0.18 },
+      rightElbowPole: { ...sample.pose.rightElbowPole, y: sample.pose.rightElbowPole.y + lift },
+      handSpread: sample.pose.handSpread + Math.abs(sideSpin) * 0.1,
+    } };
+  }
   if (phase === "READY") {
     return Object.freeze({
       stage: "IDLE",
@@ -382,17 +426,42 @@ function goalkeeperDivePose(zone: GoalkeeperZone): Readonly<{
 
 export function goalkeeperPoseAt(
   zone: GoalkeeperZone | null,
-  phase: "READY" | "PREPARE" | "DIVE" | "HOLD" | "RETURN",
+  phase:
+    | "READY"
+    | "READ"
+    | "COMMIT"
+    | "PREPARE"
+    | "DIVE"
+    | "HOLD"
+    | "RETURN"
+    | "RECOVER",
   diveProgress: number,
   resultProgress: number,
   outcome: ShotOutcome | null,
   simulationSeconds: number,
+  committed = false,
 ): GoalkeeperPoseSample {
   const readyBreath = Math.sin(simulationSeconds * 3) * 0.012;
   const readyPose: HumanoidPose = Object.freeze({
     ...KEEPER_READY_POSE,
     bodyLeanX: KEEPER_READY_POSE.bodyLeanX + readyBreath,
   });
+  if (phase === "READ") {
+    return Object.freeze({
+      stage: "ANTICIPATION",
+      diveAmount: 0,
+      pose: KEEPER_ANTICIPATION_POSE,
+      reachPoint: Object.freeze({ x: 0, y: 1.1, z: 0.28 }),
+    });
+  }
+  if (phase === "HOLD" && zone === null) {
+    return Object.freeze({
+      stage: "ANTICIPATION",
+      diveAmount: 0,
+      pose: KEEPER_WAIT_POSE,
+      reachPoint: Object.freeze({ x: 0, y: 1.4, z: 0.24 }),
+    });
+  }
   if (zone === null || phase === "READY") {
     return Object.freeze({
       stage: "READY",
@@ -403,6 +472,29 @@ export function goalkeeperPoseAt(
   }
 
   const dive = goalkeeperDivePose(zone);
+  // The zone is the controller's locked destination. No eventual shot target or
+  // gesture prediction enters this sampler. Keep the tell through reaction delay
+  // and blend from it into the existing dive, so release cannot erase deception.
+  const showsCommitment = committed || phase === "COMMIT" || phase === "RECOVER";
+  const commitmentPose = showsCommitment ? mixPose(
+    KEEPER_ANTICIPATION_POSE,
+    dive.pose,
+    KEEPER_COMMIT_AMOUNT,
+    `keeper-${zone}-commit`,
+  ) : KEEPER_ANTICIPATION_POSE;
+  const commitmentReach = showsCommitment ? mixPoint(
+    { x: 0, y: 1.1, z: 0.28 },
+    dive.reachPoint,
+    smooth(KEEPER_COMMIT_AMOUNT),
+  ) : { x: 0, y: 1.1, z: 0.28 };
+  if (phase === "COMMIT" || (phase === "PREPARE" && committed)) {
+    return Object.freeze({
+      stage: "ANTICIPATION",
+      diveAmount: KEEPER_COMMIT_AMOUNT,
+      pose: commitmentPose,
+      reachPoint: commitmentReach,
+    });
+  }
   if (phase === "PREPARE") {
     return Object.freeze({
       stage: "ANTICIPATION",
@@ -410,6 +502,11 @@ export function goalkeeperPoseAt(
       pose: KEEPER_ANTICIPATION_POSE,
       reachPoint: Object.freeze({ x: 0, y: 1.1, z: 0.28 }),
     });
+  }
+  if (phase === "RECOVER") {
+    return { stage: "RECOVERY", diveAmount: KEEPER_COMMIT_AMOUNT * (1 - smooth(resultProgress)),
+      pose: mixPose(commitmentPose, readyPose, resultProgress, "keeper-feint-recovery"),
+      reachPoint: mixPoint(commitmentReach, { x: 0, y: 1.28, z: 0.2 }, smooth(resultProgress)) };
   }
   if (phase === "RETURN") {
     const recovery = smooth(resultProgress);
@@ -437,13 +534,13 @@ export function goalkeeperPoseAt(
     stage: phase === "HOLD" && outcome === "SAVED" ? "IMPACT" : "DIVE",
     diveAmount: amount,
     pose: mixPose(
-      KEEPER_ANTICIPATION_POSE,
+      committed && amount < 1 ? commitmentPose : KEEPER_ANTICIPATION_POSE,
       dive.pose,
       amount,
       `keeper-${zone}-${phase.toLowerCase()}`,
     ),
     reachPoint: mixPoint(
-      { x: 0, y: 1.1, z: 0.28 },
+      committed && amount < 1 ? commitmentReach : { x: 0, y: 1.1, z: 0.28 },
       dive.reachPoint,
       amount,
     ),

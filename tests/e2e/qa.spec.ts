@@ -13,6 +13,7 @@ import {
 
 const AUDIT_ROOT = resolve(process.cwd(), "artifacts/audits");
 const RESIZE_TOUCH_FRAME_PHASE_OFFSET_MILLISECONDS = 90;
+const MAXIMUM_PHYSICAL_SHOT_STEPS = 360;
 
 test.beforeAll(() => {
   mkdirSync(AUDIT_ROOT, { recursive: true });
@@ -295,8 +296,11 @@ async function pumpUntilShotStops(
   page: Page,
   resolvedShots: number,
 ): Promise<void> {
-  await page.evaluate((expectedResolved) => {
-    for (let frame = 0; frame < 120; frame += 1) {
+  await page.evaluate(({ expectedResolved, maximumSteps }) => {
+    // F2 physical launches can remain airborne longer than the legacy
+    // duration-targeted path. Pump the unchanged fixed step through the
+    // bounded flight and production reset window.
+    for (let frame = 0; frame < maximumSteps; frame += 1) {
       window.__PUMP__?.(1);
       const snapshot = window.__DEMO__?.snapshot();
       if (
@@ -308,7 +312,10 @@ async function pumpUntilShotStops(
       }
     }
     throw new Error("The real fixed-frame shot did not reach its next state.");
-  }, resolvedShots);
+  }, {
+    expectedResolved: resolvedShots,
+    maximumSteps: MAXIMUM_PHYSICAL_SHOT_STEPS,
+  });
 }
 
 async function demoSnapshot(page: Page) {

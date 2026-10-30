@@ -3,7 +3,12 @@ import {
   compareExactPng,
   shouldWritePngBaseline,
 } from "../e2e/imageDiff";
-import { resolvePowerSaturationAnchor } from "../e2e/pointerGestures";
+import { STANDARD_GESTURE_CONFIG } from "../../src/config/defaults";
+import { analyzeStandardGesture } from "../../src/domain/gesture/features";
+import {
+  resolveNeutralSideSpinPowerWaypoints,
+  resolvePowerSaturationAnchor,
+} from "../e2e/pointerGestures";
 import { auditProductionRequests } from "../e2e/runtimeObservation";
 
 function pngHeader(width: number, height: number, suffix = 0): Buffer {
@@ -167,6 +172,51 @@ describe("deterministic QA tooling", () => {
       expect(anchor.x).toBeLessThan(bounds.x + bounds.width);
       expect(anchor.y).toBeGreaterThan(bounds.y);
       expect(anchor.y).toBeLessThan(bounds.y + bounds.height);
+    }
+  });
+
+  it("keeps legacy full-power contact traces neutral for side-spin and loft", () => {
+    const bounds = { x: 0, y: 0, width: 960, height: 540 } as const;
+
+    for (const [horizontalAim, verticalAim] of [
+      [-0.7, 0],
+      [0, 0],
+      [0.9, 0],
+      [1, 0],
+      [0, 1],
+    ] as const) {
+      const start = { x: bounds.width * 0.5, y: bounds.height * 0.84 };
+      const end = {
+        x: start.x + horizontalAim * bounds.width * 0.22,
+        y:
+          start.y -
+          ((verticalAim + 1) / 2) * bounds.height * 0.28,
+      };
+      const waypoints = resolveNeutralSideSpinPowerWaypoints(
+        bounds,
+        end.x,
+        end.y,
+      );
+      const pixels = [start, ...waypoints, end];
+      const points = pixels.map((positionPixels, index) => ({
+        positionPixels,
+        safeAreaPosition01: {
+          x: positionPixels.x / bounds.width,
+          y: positionPixels.y / bounds.height,
+        },
+        timeSeconds: (index * 0.08) / (pixels.length - 1),
+      }));
+      const gesture = analyzeStandardGesture(
+        points,
+        { widthPixels: bounds.width, heightPixels: bounds.height },
+        STANDARD_GESTURE_CONFIG,
+      );
+
+      expect(gesture.sideSpin).toBeCloseTo(0, 12);
+      // The old saturation fixture draws a V; v3 bounds its top-spin.
+      expect(gesture.topSpin).toBeCloseTo(0.14, 12);
+      expect(gesture.loft).toBeCloseTo(0, 12);
+      expect(gesture.power).toBe(1);
     }
   });
 });

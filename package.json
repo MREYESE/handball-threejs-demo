@@ -1,6 +1,6 @@
 {
   "name": "handball-threejs-demo",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -21,10 +21,13 @@
     "profile:capture": "DEMO_PROFILE_PRESET=capture playwright test --project=profile",
     "profile:all": "npm run profile:balanced && npm run profile:high && npm run profile:capture",
     "asset:audit": "bash tools/asset-audit.sh",
-    "validate:static": "npm run typecheck && npm test && npm run build && npm run asset:audit",
+    "validate:static": "npm run build && npm test && npm run asset:audit",
     "validate:browser": "npm run test:e2e && npm run capture && npm run profile:all",
     "validate": "npm run validate:static && npm run validate:browser",
-    "browser:install": "playwright install chromium"
+    "browser:install": "playwright install chromium",
+    "dev:check": "npm run build && npm test",
+    "dev:smoke": "playwright test --project=functional functional.spec.ts --grep \"a real accepted pointer swipe|touch input uses the same real pointer-to-shot path|real mouse gestures classify DIRECT\"",
+    "dev:full": "npm run validate"
   },
   "dependencies": {
     "three": "^0.180.0"

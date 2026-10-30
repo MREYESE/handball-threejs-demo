@@ -56,3 +56,4 @@ describe("five-shot match state", () => {
     expect(restartMatch()).toEqual(createMatchState());
   });
 });
+

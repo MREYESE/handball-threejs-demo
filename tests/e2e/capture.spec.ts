@@ -223,8 +223,11 @@ async function renderSceneInIsolatedPage(
     if (sceneName === "hero-save-high") {
       expect(snapshot.activeShot).toMatchObject({
         keeperZone: "high-center",
-        plannedOutcome: "SAVED",
         resolved: true,
+        ball: {
+          contactHistory: [{ kind: "KEEPER", outcome: "SAVED" }],
+          terminalState: "SAVED",
+        },
       });
       expect(snapshot.scene.goalkeeperPoseName).toContain(
         "high-center-impact",
@@ -246,7 +249,7 @@ async function renderSceneInIsolatedPage(
         "GOAL",
         "SAVED",
         "MISS",
-        "GOAL",
+        "SAVED",
         "MISS",
       ]);
       await expect(page.locator("#round-summary")).toBeVisible();

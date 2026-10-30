@@ -107,6 +107,10 @@ export class ProceduralHumanoid {
     this.root.updateMatrixWorld(true);
   }
 
+  public throwingHandWorld(): PosePoint {
+    return this.worldPoint(this.rightArm.endJoint);
+  }
+
   public diagnostics(): ProceduralHumanoidDiagnostics {
     let finiteTransforms = true;
     this.root.traverse((object) => {

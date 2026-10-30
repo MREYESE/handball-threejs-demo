@@ -31,6 +31,7 @@ export type GestureRejectionReason =
   | "START_OUTSIDE_INPUT_ZONE"
   | "STARTED_OVER_BLOCKING_UI"
   | "INTERRUPTED"
+  | "NON_FINITE_SAMPLE"
   | "NON_MONOTONIC_TIME"
   | "SAMPLE_GAP_TOO_LONG"
   | "DURATION_TOO_SHORT"
@@ -42,6 +43,8 @@ export interface GestureCaptureOptions {
   readonly captureAlreadyActive?: boolean;
   readonly startedOverBlockingUi?: boolean;
   readonly interrupted?: boolean;
+  /** Only set after real lateral impulse/brake/reversal recognition. */
+  readonly nonShootingFeint?: boolean;
   readonly safeArea?: SafeArea;
 }
 
@@ -75,9 +78,27 @@ export interface GesturePowerFeatures {
   readonly usedTimingFallback: boolean;
 }
 
+export type ShotCategory = "DIRECT" | "LOB" | "BOUNCE";
+
+export interface FeintAction {
+  readonly type: "FEINT";
+  /** Unit direction of the first apparent impulse, with positive Y pointing up. */
+  readonly apparentDirection: Vec2;
+  readonly recognizedAtSeconds: number;
+  readonly initialImpulseSafeFraction: number;
+  readonly brakeSafeFraction: number;
+  readonly secondImpulseSafeFraction: number;
+}
+
 export interface StandardShotGesture {
+  readonly category: ShotCategory;
+  readonly feint: FeintAction | null;
   readonly aim: NormalizedAim;
   readonly power: number;
+  readonly loft: number;
+  readonly sideSpin: number;
+  readonly topSpin: number;
+  readonly bounceIntent: number;
   readonly features: GesturePowerFeatures;
   readonly rawPoints: readonly NormalizedGesturePoint[];
   readonly smoothedPoints: readonly Vec2[];

@@ -1,4 +1,5 @@
 import {
+  STANDARD_BALL_FLIGHT_CONFIG,
   STANDARD_GESTURE_CONFIG,
   STANDARD_GOAL_CONFIG,
   STANDARD_GOALKEEPER_CONFIG,
@@ -22,16 +23,21 @@ import {
   type CaptureSceneName,
 } from "../dev/CaptureScenes";
 import type {
+  FeintAction,
   GestureRejectionReason,
+  ShotCategory,
   StandardShotGesture,
 } from "../domain/gesture/model";
 import {
-  chooseGoalkeeperZone,
   goalkeeperDiveProgress,
   goalkeeperPositionDuringShot,
   goalkeeperReturnPosition,
   type GoalkeeperZone,
 } from "../domain/goalkeeper/zones";
+import {
+  GoalkeeperCommitmentController,
+  type GoalkeeperCommitmentDiagnostics,
+} from "../domain/goalkeeper/commitment";
 import {
   beginShot,
   createMatchState,
@@ -41,12 +47,14 @@ import {
   type MatchState,
 } from "../domain/match/state";
 import type { Vec3 } from "../domain/math";
-import { resolveShotOutcome, type ShotOutcome } from "../domain/shot/outcome";
-import { mapAimToGoalTarget } from "../domain/shot/target";
 import {
-  evaluateStandardTrajectory,
-  standardShotDuration,
-} from "../domain/shot/trajectory";
+  advanceBallFlight,
+  createBaselineBallFlight,
+  type BallContact,
+  type BallFlightState,
+} from "../domain/shot/ballFlight";
+import type { ShotOutcome } from "../domain/shot/outcome";
+import { mapAimToGoalTarget } from "../domain/shot/target";
 import {
   PointerGestureInput,
   type AcceptedPointerGesture,
@@ -58,9 +66,13 @@ import {
 } from "../presentation/GameplayScene";
 import { GameHud } from "../ui/GameHud";
 
+import { GestureTrace } from "../dev/GestureTrace";
+
 interface AppEvents {
   lifecycle: Readonly<{ state: AppState }>;
   shotReleased: Readonly<{
+    category: ShotCategory;
+    feint: FeintAction | null;
     power: number;
     durationSeconds: number;
     shotNumber: number;
@@ -80,18 +92,19 @@ export interface HandballDemoOptions {
   readonly quality?: QualityPreset;
   readonly seed?: number;
   readonly manualTime?: boolean;
+  readonly recordGestures?: boolean;
 }
 
 interface ActiveShot {
+  readonly category: ShotCategory;
+  readonly feint: FeintAction | null;
   readonly power: number;
   readonly target: Vec3;
-  readonly durationSeconds: number;
   readonly keeperZone: GoalkeeperZone;
-  readonly keeperArrivalPosition: Vec3;
-  readonly plannedOutcome: ShotOutcome;
-  elapsedSeconds: number;
+  readonly keeperStart: Vec3;
+  readonly ball: BallFlightState;
+  keeperTerminalPosition: Vec3 | null;
   resultElapsedSeconds: number;
-  resolved: boolean;
 }
 
 export interface AppSnapshot {
@@ -107,15 +120,44 @@ export interface AppSnapshot {
   readonly resizeListenerCount: number;
   readonly outcomes: readonly ShotOutcome[];
   readonly lastPointerType: string | null;
+  readonly actionPhase: "READY" | "FEINT_IN_PROGRESS" | "READY_FOR_SHOT" | "SHOT_IN_PROGRESS" | "RESOLUTION";
+  readonly completedFeints: number;
+  readonly pendingFeint: FeintAction | null;
+  readonly gestureInput: ReturnType<PointerGestureInput["diagnostics"]>;
+  readonly goalkeeper: GoalkeeperCommitmentDiagnostics;
   readonly match: MatchState;
   readonly activeShot: Readonly<{
+    category: ShotCategory;
+    feint: FeintAction | null;
     target: Vec3;
     power: number;
     elapsedSeconds: number;
     durationSeconds: number;
     keeperZone: GoalkeeperZone;
-    plannedOutcome: ShotOutcome;
     resolved: boolean;
+    ball: Readonly<{
+      position: Vec3;
+      previousPosition: Vec3;
+      velocity: Vec3;
+      initialVelocity: Vec3;
+      releasePower: number;
+      releaseLoft: number;
+      releaseSideSpin: number;
+      releaseTopSpin: number;
+      releaseBounceIntent: number;
+      launchLiftMeters: number;
+      sideSpinAccelerationMetersPerSecondSquared: number;
+      topSpinDropAccelerationMetersPerSecondSquared: number;
+      releaseSpeedMetersPerSecond: number;
+      gravityMetersPerSecondSquared: number;
+      groundRestitution: number;
+      minimumGroundReboundSpeedMetersPerSecond: number;
+      maximumGroundBounces: number;
+      groundBounceCount: number;
+      elapsedSeconds: number;
+      contactHistory: readonly BallContact[];
+      terminalState: ShotOutcome | null;
+    }>;
   }> | null;
   readonly feedback: Readonly<{
     audio: ReturnType<SynthAudio["diagnostics"]>;
@@ -160,7 +202,8 @@ export class HandballDemoApp {
   private readonly scene: GameplayScene;
   private readonly input: PointerGestureInput;
   private readonly engine: Engine;
-  private keeperRng: SeededRng;
+  private readonly trace: GestureTrace | undefined;
+  private keeperController: GoalkeeperCommitmentController;
   private match: MatchState = createMatchState();
   private activeShot: ActiveShot | null = null;
   private outcomeHistory: ShotOutcome[] = [];
@@ -170,7 +213,13 @@ export class HandballDemoApp {
   private rejectedGestures = 0;
   private lastGestureRejectionReason: GestureRejectionReason | null = null;
   private lastPointerType: string | null = null;
+  private pendingFeint: FeintAction | null = null;
+  private completedFeints = 0;
+  private feintVisualUntil = 0;
+  private holdingAfterFeint = false;
+  private feintVisualDirection = 0;
   private displayedPower = 0;
+  private displayedCategory: ShotCategory = "DIRECT";
   private resizeListenerAttached = false;
   private bootTimeMilliseconds = 0;
   private inputActivatedAfterPrewarm = false;
@@ -178,6 +227,8 @@ export class HandballDemoApp {
   private reducedMotion = false;
   private roundSummaryVisible = false;
   private nextReadyPresentationSeconds = 0;
+  private presentedReadyKeeperPhase: GoalkeeperCommitmentDiagnostics["phase"] | null = null;
+  private presentedReadyKeeperDestination: GoalkeeperZone | null = null;
 
   public constructor(
     private readonly root: HTMLElement,
@@ -186,13 +237,19 @@ export class HandballDemoApp {
     this.quality = options.quality ?? "balanced";
     this.sessionSeed = (options.seed ?? 0x7a11ce) >>> 0;
     this.manualTime = options.manualTime ?? false;
+    this.trace = options.recordGestures ? new GestureTrace(STANDARD_GESTURE_CONFIG, {
+      seed: this.sessionSeed, fixedStepSeconds: FIXED_STEP_SECONDS,
+      goal: STANDARD_GOAL_CONFIG, goalkeeper: STANDARD_GOALKEEPER_CONFIG,
+      trajectory: STANDARD_TRAJECTORY_CONFIG, flight: STANDARD_BALL_FLIGHT_CONFIG,
+      releasePosition: STANDARD_RELEASE_POSITION,
+    }) : undefined;
     if (this.quality === "capture" && !this.manualTime) {
       throw new Error(
         "The capture quality preset is restricted to fixed-frame capture mode.",
       );
     }
     this.qualityConfig = getQualityConfig(this.quality);
-    this.keeperRng = new SeededRng(this.sessionSeed).fork("keeper");
+    this.keeperController = this.createKeeperController();
     this.reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -221,7 +278,28 @@ export class HandballDemoApp {
         STANDARD_GESTURE_CONFIG,
         {
           onAccepted: (result) => this.acceptGesture(result),
+          onFeintCompleted: (result) => {
+            this.keeperController.completeFeint();
+            this.completedFeints++;
+            this.holdingAfterFeint = true;
+            this.hud.setStatus("FEINT completed. Ball held. Start a new gesture to shoot.");
+            this.feintVisualUntil = this.engine.simulationSeconds + 0.3;
+            this.feintVisualDirection = result.gesture.feint?.apparentDirection.x ?? 0;
+            this.hud.clearTrail();
+            this.trace?.actionEvent("FEINT_COMPLETED", this.engine.simulationSeconds, this.keeperController.diagnostics());
+          },
+          onGestureStarted: () => {
+            this.trace?.actionEvent("GESTURE_START", this.engine.simulationSeconds, null);
+            this.keeperController.queueGestureStart();
+          },
+          onGoalkeeperObservation: (observation) => {
+            this.trace?.actionEvent("OBSERVATION", this.engine.simulationSeconds, observation);
+            this.keeperController.queueObservation(observation);
+          },
+          onFeintChanged: (feint) => this.handleFeintChanged(feint),
           onRejected: (reason) => {
+            this.trace?.actionEvent("CANCEL", this.engine.simulationSeconds, null);
+            this.keeperController.cancelGesture();
             this.rejectedGestures += 1;
             this.lastGestureRejectionReason = reason;
             this.hud.presentRejectedGesture(reason);
@@ -230,6 +308,7 @@ export class HandballDemoApp {
             this.hud.setTrail(points, viewport);
           },
         },
+        this.trace,
       ),
     );
     this.input.setEnabled(false);
@@ -254,7 +333,7 @@ export class HandballDemoApp {
           event.power,
           event.simulationSeconds,
         );
-        this.hud.presentShot(event.power);
+        this.hud.presentShot(event.power, event.category, event.feint !== null);
         this.audio.shotReleased(event.power, event.durationSeconds);
       }),
     );
@@ -314,12 +393,69 @@ export class HandballDemoApp {
         ? null
         : Object.freeze({
             target: this.activeShot.target,
+            category: this.activeShot.category,
+            feint: this.activeShot.feint,
             power: this.activeShot.power,
-            elapsedSeconds: this.activeShot.elapsedSeconds,
-            durationSeconds: this.activeShot.durationSeconds,
+            elapsedSeconds: this.activeShot.ball.elapsedSeconds,
+            durationSeconds: this.activeShot.ball.durationSeconds,
             keeperZone: this.activeShot.keeperZone,
-            plannedOutcome: this.activeShot.plannedOutcome,
-            resolved: this.activeShot.resolved,
+            resolved: this.activeShot.ball.terminalState !== null,
+            ball: Object.freeze({
+              position: snapshotVec3(this.activeShot.ball.position),
+              previousPosition: snapshotVec3(
+                this.activeShot.ball.previousPosition,
+              ),
+              velocity: snapshotVec3(this.activeShot.ball.velocity),
+              initialVelocity: snapshotVec3(
+                this.activeShot.ball.initialVelocity,
+              ),
+              releasePower: this.activeShot.ball.releasePower,
+              releaseLoft: this.activeShot.ball.releaseLoft,
+              releaseSideSpin: this.activeShot.ball.releaseSideSpin,
+              releaseTopSpin: this.activeShot.ball.releaseTopSpin,
+              releaseBounceIntent: this.activeShot.ball.releaseBounceIntent,
+              launchLiftMeters: this.activeShot.ball.launchLiftMeters,
+              sideSpinAccelerationMetersPerSecondSquared:
+                this.activeShot.ball.sideSpinAccelerationMetersPerSecondSquared,
+              topSpinDropAccelerationMetersPerSecondSquared:
+                this.activeShot.ball.topSpinDropAccelerationMetersPerSecondSquared,
+              releaseSpeedMetersPerSecond:
+                this.activeShot.ball.releaseSpeedMetersPerSecond,
+              gravityMetersPerSecondSquared:
+                this.activeShot.ball.gravityMetersPerSecondSquared,
+              groundRestitution: this.activeShot.ball.groundRestitution,
+              minimumGroundReboundSpeedMetersPerSecond:
+                this.activeShot.ball.minimumGroundReboundSpeedMetersPerSecond,
+              maximumGroundBounces: this.activeShot.ball.maximumGroundBounces,
+              groundBounceCount: this.activeShot.ball.groundBounceCount,
+              elapsedSeconds: this.activeShot.ball.elapsedSeconds,
+              contactHistory: Object.freeze(
+                this.activeShot.ball.contactHistory.map((contact) =>
+                  Object.freeze({
+                    ...contact,
+                    position: snapshotVec3(contact.position),
+                    ...(contact.normal === undefined
+                      ? {}
+                      : { normal: snapshotVec3(contact.normal) }),
+                    ...(contact.incomingVelocity === undefined
+                      ? {}
+                      : {
+                          incomingVelocity: snapshotVec3(
+                            contact.incomingVelocity,
+                          ),
+                        }),
+                    ...(contact.outgoingVelocity === undefined
+                      ? {}
+                      : {
+                          outgoingVelocity: snapshotVec3(
+                            contact.outgoingVelocity,
+                          ),
+                        }),
+                  }),
+                ),
+              ),
+              terminalState: this.activeShot.ball.terminalState,
+            }),
           });
     return Object.freeze({
       state: this.state,
@@ -334,6 +470,13 @@ export class HandballDemoApp {
       resizeListenerCount: this.resizeListenerAttached ? 1 : 0,
       outcomes: Object.freeze([...this.outcomeHistory]),
       lastPointerType: this.lastPointerType,
+      actionPhase: this.activeShot !== null ? (this.activeShot.ball.terminalState === null ? "SHOT_IN_PROGRESS" : "RESOLUTION")
+        : this.pendingFeint !== null ? "FEINT_IN_PROGRESS"
+        : this.keeperController.diagnostics().feintAgeSeconds !== null ? "READY_FOR_SHOT" : "READY",
+      completedFeints: this.completedFeints,
+      pendingFeint: this.pendingFeint,
+      gestureInput: this.input.diagnostics(),
+      goalkeeper: this.keeperController.diagnostics(),
       match: this.match,
       activeShot,
       feedback: Object.freeze({
@@ -368,12 +511,21 @@ export class HandballDemoApp {
     });
   }
 
+  public exportGestureTrace(): ReturnType<GestureTrace["export"]> | null {
+    return this.trace?.export() ?? null;
+  }
+
+  public setTraceMetadata(intendedTechnique: string, partition: string): void {
+    if (this.trace) this.trace.metadata = { intendedTechnique: intendedTechnique.slice(0, 80), partition: partition.slice(0, 40) };
+  }
+
   public restart(): void {
     if (this.match.phase !== "ROUND_COMPLETE") {
       return;
     }
+    this.trace?.actionEvent("ROUND_RESTART", this.engine.simulationSeconds, null);
     this.match = restartMatch();
-    this.keeperRng = new SeededRng(this.sessionSeed).fork("keeper");
+    this.keeperController = this.createKeeperController();
     this.activeShot = null;
     this.acceptedShots = 0;
     this.resolvedShots = 0;
@@ -381,7 +533,12 @@ export class HandballDemoApp {
     this.lastGestureRejectionReason = null;
     this.outcomeHistory = [];
     this.lastPointerType = null;
+    this.pendingFeint = null;
+    this.completedFeints = 0;
+    this.feintVisualUntil = 0;
+    this.holdingAfterFeint = false;
     this.displayedPower = 0;
+    this.displayedCategory = "DIRECT";
     this.roundSummaryVisible = false;
     this.hud.clearTrail();
     this.hud.resetRoundFeedback();
@@ -431,7 +588,7 @@ export class HandballDemoApp {
     }
     if (definition.requirement === "ACTIVE_SHOT") {
       const shot = this.activeShot;
-      if (shot === null || shot.resolved) {
+      if (shot === null || shot.ball.terminalState !== null) {
         throw new Error(
           `Capture scene '${name}' requires a real accepted active shot.`,
         );
@@ -440,7 +597,9 @@ export class HandballDemoApp {
       if (targetFrame === null) {
         throw new Error(`Capture scene '${name}' has no target shot frame.`);
       }
-      const currentFrame = Math.round(shot.elapsedSeconds / FIXED_STEP_SECONDS);
+      const currentFrame = Math.round(
+        shot.ball.elapsedSeconds / FIXED_STEP_SECONDS,
+      );
       if (currentFrame > targetFrame) {
         throw new Error(
           `Capture scene '${name}' passed its deterministic frame ` +
@@ -462,7 +621,7 @@ export class HandballDemoApp {
     if (definition.requirement === "RESULT") {
       if (
         this.activeShot === null ||
-        !this.activeShot.resolved ||
+        this.activeShot.ball.terminalState === null ||
         this.match.lastOutcome !== definition.expectedOutcome
       ) {
         throw new Error(
@@ -527,6 +686,7 @@ export class HandballDemoApp {
     }
 
     this.state = "disposed";
+    this.keeperController.reset();
     this.root.dataset.appState = this.state;
     this.events.emit("lifecycle", { state: this.state });
     this.resources.dispose();
@@ -539,45 +699,47 @@ export class HandballDemoApp {
       return;
     }
     const gesture: StandardShotGesture = result.gesture;
+    this.holdingAfterFeint = false;
     const target = mapAimToGoalTarget(
       gesture.aim.horizontalAim,
       gesture.aim.verticalAim,
       STANDARD_GOAL_CONFIG,
     );
-    const durationSeconds = standardShotDuration(
+    const ball = createBaselineBallFlight(
+      STANDARD_RELEASE_POSITION,
+      target,
       gesture.power,
       STANDARD_TRAJECTORY_CONFIG,
+      STANDARD_BALL_FLIGHT_CONFIG,
+      gesture.loft,
+      gesture.sideSpin,
+      gesture.topSpin,
+      gesture.bounceIntent,
     );
-    const keeperZone = chooseGoalkeeperZone(this.keeperRng);
-    const keeperArrivalPosition = goalkeeperPositionDuringShot(
-      keeperZone,
-      STANDARD_GOAL_CONFIG.center,
-      STANDARD_GOALKEEPER_CONFIG,
-      durationSeconds,
-    );
-    const plannedOutcome = resolveShotOutcome(
-      target,
-      keeperArrivalPosition,
-      STANDARD_GOAL_CONFIG,
-      STANDARD_GOALKEEPER_CONFIG,
-    );
+    const keeperStart = this.keeperController.preReleasePosition(STANDARD_GOAL_CONFIG.center);
+    const keeperZone = this.keeperController.releaseGesture();
+    this.trace?.actionEvent("SHOT_RELEASED", this.engine.simulationSeconds, this.keeperController.diagnostics());
+    this.trace?.release({ target, initialPosition: { ...ball.position }, initialVelocity: ball.initialVelocity,
+      ball, keeperZone, keeperStart, keeper: this.keeperController.diagnostics(),
+      shotNumber: this.match.shotsTaken + 1, simulationSeconds: this.engine.simulationSeconds });
 
     this.match = beginShot(this.match);
     this.activeShot = {
+      category: gesture.category,
+      feint: gesture.feint,
       power: gesture.power,
       target,
-      durationSeconds,
       keeperZone,
-      keeperArrivalPosition,
-      plannedOutcome,
-      elapsedSeconds: 0,
+      keeperStart,
+      ball,
+      keeperTerminalPosition: null,
       resultElapsedSeconds: 0,
-      resolved: false,
     };
     this.acceptedShots += 1;
     this.scene.beginShotMeasurement();
     this.lastPointerType = result.pointerType;
     this.displayedPower = gesture.power;
+    this.displayedCategory = gesture.category;
     // The pointer trail communicates the live gesture only. Capture power may
     // legitimately use a distant native sample, but that QA path must never
     // remain as a screen-spanning hero-frame graphic after release.
@@ -585,28 +747,67 @@ export class HandballDemoApp {
     this.root.dataset.acceptedShots = String(this.acceptedShots);
     this.setInputEnabled(false);
     this.events.emit("shotReleased", {
+      category: gesture.category,
+      feint: gesture.feint,
       power: gesture.power,
-      durationSeconds,
+      durationSeconds: ball.durationSeconds,
       shotNumber: this.match.shotsTaken + 1,
       simulationSeconds: this.engine.simulationSeconds,
     });
     this.applyShotVisuals(this.activeShot, this.engine.simulationSeconds);
   }
 
+  private handleFeintChanged(feint: FeintAction | null): void {
+    this.pendingFeint = feint;
+    if (feint !== null) {
+      this.trace?.actionEvent("FEINT_START", this.engine.simulationSeconds, this.keeperController.diagnostics());
+      this.hud.presentFeint(feint);
+    } else if (this.activeShot === null) {
+      this.hud.clearFeint(this.displayedCategory);
+    }
+  }
+
   private fixedUpdate(stepSeconds: number, simulationSeconds: number): void {
     const shot = this.activeShot;
     if (shot === null) {
+      this.keeperController.advance(stepSeconds);
+      this.trace?.keeperStep(simulationSeconds, this.keeperController.diagnostics());
       this.updateReadyVisuals(simulationSeconds);
       return;
     }
 
-    if (!shot.resolved) {
-      shot.elapsedSeconds = Math.min(
-        shot.durationSeconds,
-        shot.elapsedSeconds + stepSeconds,
+    if (shot.ball.terminalState === null) {
+      const keeperPreviousPosition = goalkeeperPositionDuringShot(
+        shot.keeperZone,
+        STANDARD_GOAL_CONFIG.center,
+        STANDARD_GOALKEEPER_CONFIG,
+        shot.ball.elapsedSeconds,
+        shot.keeperStart,
       );
+      const keeperCurrentPosition = goalkeeperPositionDuringShot(
+        shot.keeperZone,
+        STANDARD_GOAL_CONFIG.center,
+        STANDARD_GOALKEEPER_CONFIG,
+        shot.ball.elapsedSeconds + stepSeconds,
+        shot.keeperStart,
+      );
+      const outcome = advanceBallFlight(
+        shot.ball,
+        stepSeconds,
+        STANDARD_GOAL_CONFIG,
+        STANDARD_GOALKEEPER_CONFIG,
+        {
+          previousPosition: keeperPreviousPosition,
+          currentPosition: keeperCurrentPosition,
+        },
+      );
+      this.trace?.actionEvent("FLIGHT_STEP", simulationSeconds, {
+        position: shot.ball.position, velocity: shot.ball.velocity,
+        elapsedSeconds: shot.ball.elapsedSeconds, contacts: shot.ball.contactHistory.length,
+        terminalState: shot.ball.terminalState,
+      });
       this.applyShotVisuals(shot, simulationSeconds);
-      if (shot.elapsedSeconds + Number.EPSILON >= shot.durationSeconds) {
+      if (outcome !== null) {
         this.resolveActiveShot(shot);
       }
       return;
@@ -621,7 +822,9 @@ export class HandballDemoApp {
       return;
     }
 
+    this.trace?.reset({ simulationSeconds, nextShotReady: this.match.phase === "RESULT", roundComplete: this.match.phase === "ROUND_COMPLETE" });
     this.activeShot = null;
+    this.keeperController.reset();
     this.scene.finishShotMeasurement();
     this.scene.resetFeedback();
     this.displayedPower = 0;
@@ -639,41 +842,57 @@ export class HandballDemoApp {
   }
 
   private resolveActiveShot(shot: ActiveShot): void {
-    if (shot.resolved) {
+    const outcome = shot.ball.terminalState;
+    if (outcome === null) {
+      throw new Error("Cannot resolve a shot before a physical contact.");
+    }
+    if (shot.keeperTerminalPosition !== null) {
       return;
     }
-    shot.resolved = true;
-    shot.resultElapsedSeconds = 0;
-    this.match = resolveMatchShot(
-      this.match,
-      shot.plannedOutcome,
-      STANDARD_MATCH_CONFIG,
+    shot.keeperTerminalPosition = goalkeeperPositionDuringShot(
+      shot.keeperZone,
+      STANDARD_GOAL_CONFIG.center,
+      STANDARD_GOALKEEPER_CONFIG,
+      shot.ball.elapsedSeconds,
+      shot.keeperStart,
     );
+    shot.resultElapsedSeconds = 0;
+    this.match = resolveMatchShot(this.match, outcome, STANDARD_MATCH_CONFIG);
     this.resolvedShots += 1;
-    this.outcomeHistory.push(shot.plannedOutcome);
+    this.outcomeHistory.push(outcome);
+    this.trace?.result({ outcome, contacts: shot.ball.contactHistory, terminalPosition: shot.ball.position, elapsedSeconds: shot.ball.elapsedSeconds, simulationSeconds: this.engine.simulationSeconds });
     this.root.dataset.resolvedShots = String(this.resolvedShots);
     this.updateHud();
     this.events.emit("outcome", {
-      outcome: shot.plannedOutcome,
+      outcome,
       shotNumber: this.match.shotsTaken,
-      target: shot.target,
+      target: shot.ball.position,
       simulationSeconds: this.engine.simulationSeconds,
     });
   }
 
   private applyReadyVisuals(simulationSeconds: number): void {
+    const phase = this.keeperController.currentPhase;
+    const destination = this.keeperController.currentDestination;
+    const committed = phase === "COMMIT";
     this.scene.apply({
       ballPosition: STANDARD_RELEASE_POSITION,
-      keeperPosition: STANDARD_GOAL_CONFIG.center,
-      keeperZone: null,
-      keeperDiveProgress: 0,
-      keeperPhase: "READY",
-      shooterPhase: "READY",
+      keeperPosition: this.keeperController.preReleasePosition(STANDARD_GOAL_CONFIG.center),
+      keeperZone: committed || phase === "RECOVER" ? destination : null,
+      keeperDiveProgress: committed ? 0.12 : 0,
+      keeperPhase: phase,
+      shooterPhase: this.pendingFeint !== null || this.holdingAfterFeint || simulationSeconds < this.feintVisualUntil ? "FEINT" : "READY",
+      feintDirection: this.pendingFeint?.apparentDirection.x ?? this.feintVisualDirection,
+      feintAmount: this.pendingFeint !== null ? 1 : Math.max(0, (this.feintVisualUntil - simulationSeconds) / 0.3),
       shotProgress: 0,
-      resultProgress: 0,
+      resultProgress: phase === "RECOVER" ? Math.min(1, Math.max(0,
+        ((this.keeperController.diagnostics().feintAgeSeconds ?? 0) - STANDARD_GOALKEEPER_CONFIG.feintHoldSeconds) /
+        STANDARD_GOALKEEPER_CONFIG.feintRecoverySeconds)) : 0,
       outcome: null,
       simulationSeconds,
     });
+    this.presentedReadyKeeperPhase = phase;
+    this.presentedReadyKeeperDestination = destination;
   }
 
   private forceReadyVisuals(simulationSeconds: number): void {
@@ -683,7 +902,15 @@ export class HandballDemoApp {
   }
 
   private updateReadyVisuals(simulationSeconds: number): void {
+    const phase = this.keeperController.currentPhase;
+    const destination = this.keeperController.currentDestination;
+    // Publish semantic transitions in the same fixed step as the domain.
+    // Unchanged ready poses retain the steady-state presentation budget.
+    const keeperChanged =
+      phase !== this.presentedReadyKeeperPhase ||
+      destination !== this.presentedReadyKeeperDestination;
     if (
+      !keeperChanged &&
       simulationSeconds + Number.EPSILON <
       this.nextReadyPresentationSeconds
     ) {
@@ -697,34 +924,33 @@ export class HandballDemoApp {
     simulationSeconds: number,
   ): void {
     const keeperProgress = goalkeeperDiveProgress(
-      shot.elapsedSeconds,
+      shot.ball.elapsedSeconds,
       STANDARD_GOALKEEPER_CONFIG,
     );
     const keeperPhase: KeeperVisualPhase =
-      shot.elapsedSeconds < STANDARD_GOALKEEPER_CONFIG.reactionDelaySeconds
+      shot.ball.elapsedSeconds <
+      STANDARD_GOALKEEPER_CONFIG.reactionDelaySeconds
         ? "PREPARE"
         : keeperProgress < 1
           ? "DIVE"
           : "HOLD";
     this.scene.apply({
-      ballPosition: evaluateStandardTrajectory(
-        STANDARD_RELEASE_POSITION,
-        shot.target,
-        shot.elapsedSeconds,
-        shot.power,
-        STANDARD_TRAJECTORY_CONFIG,
-      ),
+      ballPosition: shot.ball.position,
       keeperPosition: goalkeeperPositionDuringShot(
         shot.keeperZone,
         STANDARD_GOAL_CONFIG.center,
         STANDARD_GOALKEEPER_CONFIG,
-        shot.elapsedSeconds,
+        shot.ball.elapsedSeconds,
+        shot.keeperStart,
       ),
       keeperZone: shot.keeperZone,
       keeperDiveProgress: keeperProgress,
       keeperPhase,
+      keeperCommitted: this.keeperController.currentPhase === "COMMIT",
       shooterPhase: "RELEASE",
-      shotProgress: shot.elapsedSeconds / shot.durationSeconds,
+      shotCategory: shot.category,
+      sideSpin: shot.ball.releaseSideSpin,
+      shotProgress: shot.ball.elapsedSeconds / shot.ball.durationSeconds,
       resultProgress: 0,
       outcome: null,
       simulationSeconds,
@@ -736,7 +962,7 @@ export class HandballDemoApp {
     simulationSeconds: number,
   ): void {
     const keeperPosition = goalkeeperReturnPosition(
-      shot.keeperArrivalPosition,
+      shot.keeperTerminalPosition ?? STANDARD_GOAL_CONFIG.center,
       STANDARD_GOAL_CONFIG.center,
       STANDARD_GOALKEEPER_CONFIG,
       shot.resultElapsedSeconds,
@@ -752,7 +978,7 @@ export class HandballDemoApp {
         STANDARD_TRAJECTORY_CONFIG.resetDelaySeconds,
     );
     this.scene.apply({
-      ballPosition: shot.target,
+      ballPosition: shot.ball.position,
       keeperPosition,
       keeperZone: shot.keeperZone,
       keeperDiveProgress: 1 - returnProgress,
@@ -760,7 +986,7 @@ export class HandballDemoApp {
       shooterPhase,
       shotProgress: 1,
       resultProgress,
-      outcome: shot.plannedOutcome,
+      outcome: shot.ball.terminalState,
       simulationSeconds,
     });
   }
@@ -780,15 +1006,37 @@ export class HandballDemoApp {
     this.updateHud();
   }
 
+  private createKeeperController(): GoalkeeperCommitmentController {
+    return new GoalkeeperCommitmentController(
+      STANDARD_GOALKEEPER_CONFIG,
+      new SeededRng(this.sessionSeed).fork("keeper"),
+    );
+  }
+
   private updateHud(): void {
     const inputEnabled = this.isInputEnabled();
     this.hud.update(
       this.match,
       this.displayedPower,
+      this.displayedCategory,
       inputEnabled,
       this.outcomeHistory,
       this.roundSummaryVisible,
+      this.pendingFeint !== null
+        ? "pending"
+        : this.activeShot?.feint !== null && this.activeShot?.feint !== undefined
+          ? "released"
+          : null,
     );
+    if (this.roundSummaryVisible && this.match.goals === 1) {
+      const summaryText = this.root.querySelector<HTMLElement>("#summary-text");
+      if (summaryText !== null) {
+        summaryText.textContent = summaryText.textContent?.replace(
+          "1 goals",
+          "1 goal",
+        ) ?? null;
+      }
+    }
     this.root.dataset.acceptedShots = String(this.acceptedShots);
     this.root.dataset.resolvedShots = String(this.resolvedShots);
   }
@@ -833,4 +1081,8 @@ export class HandballDemoApp {
     const rect = this.hud.canvas.getBoundingClientRect();
     this.scene.resize(rect.width, rect.height);
   };
+}
+
+function snapshotVec3(value: Vec3): Vec3 {
+  return Object.freeze({ x: value.x, y: value.y, z: value.z });
 }

@@ -1,6 +1,11 @@
 import type { MatchState } from "../domain/match/state";
 import type { Vec2 } from "../domain/math";
-import type { GestureRejectionReason, Viewport } from "../domain/gesture/model";
+import type {
+  FeintAction,
+  GestureRejectionReason,
+  ShotCategory,
+  Viewport,
+} from "../domain/gesture/model";
 import type { ShotOutcome } from "../domain/shot/outcome";
 
 export interface GameHudOptions {
@@ -19,6 +24,10 @@ export interface GameHudDiagnostics {
   readonly lastPresentedOutcome: ShotOutcome | null;
   readonly outcomePresentations: Readonly<Record<ShotOutcome, number>>;
   readonly rejectedGesturePresentations: number;
+  readonly techniqueCategory: ShotCategory;
+  readonly techniqueLabel: string;
+  readonly feintState: "pending" | "released" | null;
+  readonly feintApparentDirection: Vec2 | null;
   readonly safeAreaPanels: readonly string[];
   readonly fictionalHomeTeam: "NOVA AEGIS";
   readonly fictionalAwayTeam: "VOLT UNION";
@@ -50,6 +59,7 @@ export class GameHud {
   private readonly resultDetail: HTMLElement;
   private readonly powerFill: HTMLElement;
   private readonly powerValue: HTMLElement;
+  private readonly technique: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly summary: HTMLElement;
   private readonly summaryTitle: HTMLElement;
@@ -73,6 +83,9 @@ export class GameHud {
     MISS: 0,
   };
   private rejectedGesturePresentations = 0;
+  private techniqueCategory: ShotCategory = "DIRECT";
+  private feintState: "pending" | "released" | null = null;
+  private feintApparentDirection: Vec2 | null = null;
   private trailVisible = false;
   private trailViewportWidth = 0;
   private trailViewportHeight = 0;
@@ -125,7 +138,7 @@ export class GameHud {
 
           <section class="hud-panel hud-technique" data-safe-zone="top-right" aria-label="Technique">
             <span class="hud-kicker">Technique</span>
-            <strong>STANDARD</strong>
+            <strong id="hud-technique-value">DIRECT</strong>
             <span class="technique-vector" aria-hidden="true">↗</span>
           </section>
 
@@ -180,6 +193,7 @@ export class GameHud {
     this.resultDetail = this.required("#hud-result-detail");
     this.powerFill = this.required("#hud-power-fill");
     this.powerValue = this.required("#hud-power-value");
+    this.technique = this.required("#hud-technique-value");
     this.hint = this.required("#input-hint");
     this.summary = this.required("#round-summary");
     this.summaryTitle = this.required("#summary-title");
@@ -209,15 +223,18 @@ export class GameHud {
   public update(
     match: MatchState,
     power: number,
+    category: ShotCategory,
     inputEnabled: boolean,
     outcomes: readonly ShotOutcome[],
     roundCompleteVisible: boolean,
+    feintState: "pending" | "released" | null,
   ): void {
     const displayShot = Math.min(match.shotsTaken + 1, 5);
     this.round.textContent =
       match.phase === "ROUND_COMPLETE" ? "Complete" : `Shot ${displayShot}`;
     this.score.textContent = `${match.goals} : ${match.saves + match.misses}`;
     this.updateProgress(outcomes);
+    this.setTechnique(category, feintState);
 
     if (match.lastOutcome !== null) {
       const copy = OUTCOME_COPY[match.lastOutcome];
@@ -255,12 +272,30 @@ export class GameHud {
     }
   }
 
-  public presentShot(power: number): void {
+  public presentShot(
+    power: number,
+    category: ShotCategory,
+    hasFeint = false,
+  ): void {
+    this.setTechnique(category, hasFeint ? "released" : null);
     this.root.dataset.feedback = "release";
     this.powerFill.dataset.charged = power >= 0.78 ? "true" : "false";
     this.trailGlow.classList.add("is-committed");
     this.trailCore.classList.add("is-committed");
-    this.setStatus(`Standard shot released at ${Math.round(power * 100)} percent power.`);
+    this.setStatus(
+      `${hasFeint ? "FEINT into " : ""}${category} shot released at ${Math.round(power * 100)} percent power.`,
+    );
+  }
+
+  public presentFeint(feint: FeintAction): void {
+    this.feintApparentDirection = feint.apparentDirection;
+    this.setTechnique(this.techniqueCategory, "pending");
+    this.setStatus("FEINT recognized. Lift your finger to finish the fake, then start a new gesture to shoot.");
+  }
+
+  public clearFeint(category: ShotCategory): void {
+    this.feintApparentDirection = null;
+    this.setTechnique(category, null);
   }
 
   public presentOutcome(outcome: ShotOutcome): void {
@@ -291,6 +326,8 @@ export class GameHud {
     this.outcomePresentations.SAVED = 0;
     this.outcomePresentations.MISS = 0;
     this.rejectedGesturePresentations = 0;
+    this.feintApparentDirection = null;
+    this.setTechnique("DIRECT", null);
     this.result.classList.remove("is-impact");
     this.powerFill.dataset.charged = "false";
     this.root.dataset.feedback = "ready";
@@ -392,6 +429,10 @@ export class GameHud {
       lastPresentedOutcome: this.lastPresentedOutcome,
       outcomePresentations: Object.freeze({ ...this.outcomePresentations }),
       rejectedGesturePresentations: this.rejectedGesturePresentations,
+      techniqueCategory: this.techniqueCategory,
+      techniqueLabel: this.technique.textContent ?? this.techniqueCategory,
+      feintState: this.feintState,
+      feintApparentDirection: this.feintApparentDirection,
       safeAreaPanels: Object.freeze(
         Array.from(
           this.root.querySelectorAll<HTMLElement>("[data-safe-zone]"),
@@ -409,6 +450,36 @@ export class GameHud {
     this.audioButton.removeEventListener("click", this.onAudioToggle);
     this.motionButton.removeEventListener("click", this.onMotionToggle);
     this.root.replaceChildren();
+  }
+
+  private setTechnique(
+    category: ShotCategory,
+    feintState: "pending" | "released" | null,
+  ): void {
+    this.techniqueCategory = category;
+    this.feintState = feintState;
+    if (feintState === null) {
+      this.feintApparentDirection = null;
+    }
+    this.technique.textContent =
+      feintState === "pending"
+        ? "FEINT"
+        : feintState === "released"
+          ? `FEINT → ${category}`
+          : category;
+    this.root.dataset.shotCategory = category;
+    this.root.dataset.feintState = feintState ?? "";
+    if (this.feintApparentDirection === null) {
+      delete this.root.dataset.feintApparentX;
+      delete this.root.dataset.feintApparentY;
+    } else {
+      this.root.dataset.feintApparentX = String(
+        this.feintApparentDirection.x,
+      );
+      this.root.dataset.feintApparentY = String(
+        this.feintApparentDirection.y,
+      );
+    }
   }
 
   private updateProgress(outcomes: readonly ShotOutcome[]): void {

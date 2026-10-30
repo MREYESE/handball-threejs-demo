@@ -63,12 +63,13 @@ export function goalkeeperPositionDuringShot(
   goalCenter: Vec3,
   config: GoalkeeperConfig,
   elapsedSeconds: number,
+  from: Vec3 = goalCenter,
 ): Vec3 {
   const target = goalkeeperZonePosition(zone, goalCenter, config);
   const progress = goalkeeperDiveProgress(elapsedSeconds, config);
   return Object.freeze({
-    x: lerp(goalCenter.x, target.x, progress),
-    y: lerp(goalCenter.y, target.y, progress),
+    x: lerp(from.x, target.x, progress),
+    y: lerp(from.y, target.y, progress),
     z: goalCenter.z,
   });
 }

@@ -141,8 +141,12 @@ describe("runtime asset and network policy", () => {
     expect(characterSource).toContain('userData["ownsScoring"] = false');
     expect(scene).toContain("characterVisualRootsOwnScoring: false");
     expect(app).toContain("keeperZone: shot.keeperZone");
-    expect(app.indexOf("resolveShotOutcome(")).toBeLessThan(
-      app.indexOf("this.scene.apply({", app.indexOf("private applyShotVisuals")),
+    expect(app).not.toContain("plannedOutcome");
+    expect(app).not.toContain("resolveShotOutcome");
+    expect(app).toContain("advanceBallFlight(");
+    expect(app).toContain("ballPosition: shot.ball.position");
+    expect(app.indexOf("advanceBallFlight(")).toBeLessThan(
+      app.indexOf("this.resolveActiveShot(shot)"),
     );
   });
 
@@ -529,7 +533,7 @@ describe("runtime asset and network policy", () => {
     expect(input).toContain(
       'canvas.addEventListener("pointercancel", this.onPointerCancel)',
     );
-    expect(input).not.toContain(
+    expect(input).toContain(
       'canvas.addEventListener("lostpointercapture"',
     );
   });
@@ -546,6 +550,7 @@ describe("runtime asset and network policy", () => {
       join(APP_ROOT, "tests", "e2e", "capture.spec.ts"),
       "utf8",
     );
+
 
     expect(packageJson.scripts).toMatchObject({
       "profile:balanced":
@@ -598,6 +603,7 @@ describe("runtime asset and network policy", () => {
     );
     expect(capture).toContain('"hero-promo"');
     expect(capture).toContain("return apply(name)");
+
   });
 
   it("keeps one camera and one balanced resize listener on the real app lifecycle", () => {
@@ -655,6 +661,14 @@ describe("runtime asset and network policy", () => {
     expect(pointerHelper).toContain("options.holdMilliseconds");
     expect(configuredHolds).toEqual([
       {
+        path: join("tests", "e2e", "functional.spec.ts"),
+        milliseconds: 220,
+      },
+      {
+        path: join("tests", "e2e", "functional.spec.ts"),
+        milliseconds: 200,
+      },
+      {
         path: join("tests", "e2e", "profile.spec.ts"),
         milliseconds: 180,
       },
@@ -672,7 +686,7 @@ describe("runtime asset and network policy", () => {
     expect(qaPlaytest).toContain("evidence.renderFramesDuringGesture");
   });
 
-  it("separates gameplay semantics from dedicated frame-coexistence evidence", () => {
+  it("keeps frame-coexistence requirements explicit on browser evidence paths", () => {
     const pointerHelper = readFileSync(
       join(APP_ROOT, "tests", "e2e", "pointerGestures.ts"),
       "utf8",
@@ -693,7 +707,7 @@ describe("runtime asset and network policy", () => {
       "requirePresentedFrame && renderFramesDuringGesture < 1",
     );
     expect(functionalPlaytest).toContain(
-      "presentationRequirementApplied).toBe(false)",
+      "presentationRequirementApplied).toBe(true)",
     );
     expect(profilePlaytest).toContain("requirePresentedFrame: true");
     expect(profilePlaytest).toContain("holdMilliseconds: 180");

@@ -24,6 +24,8 @@ import {
 import { ProceduralHumanoid } from "../../src/presentation/characters/ProceduralHumanoid";
 import { LockedCameraRig } from "../../src/presentation/camera/LockedCameraRig";
 import { evaluateStandardTrajectory } from "../../src/domain/shot/trajectory";
+import { SeededRng } from "../../src/core/SeededRng";
+import { GoalkeeperCommitmentController } from "../../src/domain/goalkeeper/commitment";
 
 const allocatedMaterials: CharacterMaterials[] = [];
 
@@ -146,6 +148,71 @@ describe("reusable procedural humanoid", () => {
 });
 
 describe("engine-time and event-driven character poses", () => {
+  it("shows a centered HOLD distinct from READ and READY without inventing a destination", () => {
+    const keeper = new GoalkeeperCommitmentController(STANDARD_GOALKEEPER_CONFIG, new SeededRng(41));
+    const ready = goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, 0);
+    keeper.queueGestureStart();
+    keeper.advance(1 / 60);
+    const read = goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, 0);
+    for (let step = 0; step < 6; step += 1) keeper.advance(1 / 60);
+    expect(keeper.currentPhase).toBe("HOLD");
+    expect(keeper.currentDestination).toBeNull();
+    const hold = goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, 0);
+    expect(read.pose.leftHand.y).toBeLessThan(ready.pose.leftHand.y);
+    expect(hold.pose.leftHand.y).toBeGreaterThan(ready.pose.leftHand.y);
+    expect(hold.pose.leftHand.x).toBe(-hold.pose.rightHand.x);
+    expect(hold.pose.bodyLeanZ).toBe(0);
+    expect(hold.diveAmount).toBe(0);
+    keeper.cancelGesture();
+    expect(goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, 0)).toEqual(ready);
+  });
+
+  it("keeps the actual committed tell after an opposite cue, without mutating the controller", () => {
+    const keeper = new GoalkeeperCommitmentController(STANDARD_GOALKEEPER_CONFIG, new SeededRng(41));
+    keeper.queueGestureStart();
+    for (let index = 0; index < 2; index += 1) keeper.queueObservation({
+      apparentDirection: { x: 1, y: 0 }, elapsedGestureSeconds: 0.04 + index * 0.02,
+      confidence: 0.8, feint: null,
+    });
+    for (let step = 0; step < 6; step += 1) keeper.advance(1 / 60);
+    expect(keeper.currentPhase).toBe("COMMIT");
+    const before = keeper.diagnostics();
+    const first = goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, 0);
+    expect(Math.abs(first.pose.bodyLeanZ)).toBeGreaterThan(0.2);
+    // The player's final aim can reverse; presentation continues to use the lock.
+    keeper.queueObservation({ apparentDirection: { x: -1, y: 0 }, elapsedGestureSeconds: 0.15, confidence: 1, feint: null });
+    keeper.advance(1 / 60);
+    expect(keeper.currentDestination).toBe(before.committedDestination);
+    expect(goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, 0)).toEqual(first);
+    const locked = keeper.diagnostics();
+    for (let frame = 0; frame < 120; frame += 1) {
+      goalkeeperPoseAt(keeper.currentDestination, keeper.currentPhase, 0, 0, null, frame / 60);
+    }
+    expect(keeper.diagnostics()).toEqual(locked);
+    expect(keeper.releaseGesture()).toBe(before.committedDestination);
+  });
+
+  it.each(GOALKEEPER_ZONES)("preserves %s commitment across release and reaction, then reaches the original full dive", (zone) => {
+    const commit = goalkeeperPoseAt(zone, "COMMIT", 0, 0, null, 0);
+    const react = goalkeeperPoseAt(zone, "PREPARE", 0, 0, null, 0, true);
+    const start = goalkeeperPoseAt(zone, "DIVE", 0, 0, null, 0, true);
+    expect(react.pose).toEqual(commit.pose);
+    expect(react.reachPoint).toEqual(commit.reachPoint);
+    const { name: _name, ...startJoints } = start.pose;
+    const { name: _commitName, ...commitJoints } = commit.pose;
+    expect(startJoints).toEqual(commitJoints);
+    expect(goalkeeperPoseAt(zone, "DIVE", 1, 0, null, 0, true).pose).toEqual(
+      goalkeeperPoseAt(zone, "DIVE", 1, 0, null, 0).pose,
+    );
+    const rig = humanoid("goalkeeper");
+    for (let step = 0; step <= 10; step += 1) {
+      rig.applyPose(goalkeeperPoseAt(zone, "DIVE", step / 10, 0, null, 0, true).pose);
+      expect(rig.diagnostics().finiteTransforms).toBe(true);
+      expect(rig.root.position.toArray()).toEqual([0, 0, 0]);
+    }
+    rig.dispose();
+  });
+
   it("holds the authoritative ready ball at the throwing hand before release", () => {
     const rig = humanoid("shooter");
     rig.root.position.set(-0.78, 0, -0.42);
@@ -321,4 +388,22 @@ describe("engine-time and event-driven character poses", () => {
       1.1,
     );
   });
+});
+
+it("keeps the actual held ball visible during fake and ready recovery in every approved landscape camera",()=>{
+  const rig=humanoid("shooter");
+  rig.root.position.set(-0.78,0,-0.42);rig.root.rotation.y=SHOOTER_PRESENTATION_YAW_RADIANS;
+  const camera=new LockedCameraRig();
+  for(const [width,height] of [[960,540],[1440,900],[1920,1080],[844,390]]) {
+    camera.resize(width!,height!);
+    for(const direction of [-1,1])for(const amount of [0,.25,.5,1]) {
+      const sample=shooterPoseAt("FEINT",0,0,.2,direction,amount);
+      rig.applyPose(sample.pose);const hand=rig.throwingHandWorld();
+      const point=camera.projectPoint(hand);
+      expect(point.visible,JSON.stringify({width,height,direction,amount,hand,point})).toBe(true);
+      expect(Math.abs(point.x)).toBeLessThan(.95);
+      expect(sample.releaseAmount).toBe(0);
+    }
+  }
+  rig.dispose();
 });

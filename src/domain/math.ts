@@ -28,3 +28,4 @@ export function distance2(from: Vec2, to: Vec2): number {
 export function distance3(from: Vec3, to: Vec3): number {
   return Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
 }
+

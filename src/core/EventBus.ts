@@ -38,3 +38,4 @@ export class EventBus<Events extends object> {
     this.handlers.clear();
   }
 }
+

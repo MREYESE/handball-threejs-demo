@@ -59,3 +59,4 @@ export function prepareNextShot(state: MatchState): MatchState {
 export function restartMatch(): MatchState {
   return createMatchState();
 }
+
