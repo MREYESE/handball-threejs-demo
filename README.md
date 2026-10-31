@@ -37,12 +37,22 @@ Los gestos del tutorial son muestras sintéticas de enseñanza, no pruebas human
 
 ## Estado de validación
 
-PLAYTEST para validación humana. **FULL_MILESTONE_ACCEPTED: NO.**
-Compilación, 288 pruebas unitarias, 18 pruebas de integración enfocadas, inicio
-público, ROSCA nativa y dev:smoke (3/3) aprobados. Revisión independiente aprobada.
-Persisten fallos de referencias de captura y mínimos de muestras de perfilado
-balanced/high. El perfil capture aprueba. No se actualizaron referencias ni se
-rebajaron puertas de calidad. La aceptación humana de los gestos sigue pendiente.
+PLAYTEST para validar F6-R: goles después de rebotes en el suelo, desvíos del
+portero y contactos con postes/larguero. Un contacto previo no anula un gol.
+El balón completo debe cruzar la línea dentro de la abertura física.
+
+Los gestos, FEINT y el tutorial ya fueron validados por el jugador. La corrección
+F6-R espera su aceptación humana. **FULL_MILESTONE_ACCEPTED: NO.**
+Compilación y 320 pruebas unitarias aprobadas; dev:smoke 3/3, entrada nativa de
+ratón/táctil suelo→gol 2/2 y Skip corregido 4/4. Revisión independiente aprobada.
+La ejecución completa registró 68/71 casos de navegador: tres lecturas de estado
+caducado en las pruebas de Skip se corrigieron y validaron después; no se repitió
+la puerta completa. Persisten fallos históricos de captura y mínimos de muestras
+de perfilado. No se actualizaron referencias ni se rebajaron las puertas de calidad.
+
+Prueba especialmente: suelo→gol; portero→suelo→gol; poste/larguero→gol;
+desvío fuera→parada; balón que se detiene antes de entrar→fallo; y cinco tiros
+seguidos de reinicio. La puntuación debe cambiar una sola vez por lanzamiento.
 
 `site/release.json` registra la procedencia y los hashes SHA-256 del paquete.
 La publicación actualiza solo el artefacto; el historial conserva las versiones
