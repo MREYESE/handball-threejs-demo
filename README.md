@@ -1,54 +1,52 @@
-# Handball Gesture V3 — PLAYTEST artifact
+# Handball — calibración de gestos y tutorial
 
-This repository publishes compiled browser artifacts only. Application TypeScript,
-source maps, dependencies, development tests and private infrastructure are excluded
-from this release tree. Browser JavaScript is necessarily downloadable to run the game.
+[**JUGAR / TUTORIAL**](https://mreyese.github.io/handball-threejs-demo/)
 
-[Play](https://mreyese.github.io/handball-threejs-demo/?playtest&seed=71&quality=balanced)
+Este repositorio publica únicamente artefactos compilados HTML, CSS y JavaScript.
+No incluye TypeScript original, mapas de código, dependencias, pruebas, trazas ni
+muestras de jugadores. El JavaScript compilado se descarga para ejecutar el juego.
 
-Source provenance: `d14a427de2893349623ac0aacd5c3e533f620832` in the private
-`MREYESE/environmentTesting` repository. `site/release.json` records file hashes.
-No human traces or calibration data are published.
+## Cómo jugar
 
-## Gestos — español
+El inicio muestra **JUGAR** y **TUTORIAL**. JUGAR comienza una ronda de cinco tiros.
+TUTORIAL dibuja automáticamente DIRECT, LOB, BOUNCE, ROSCA_LEFT, ROSCA_RIGHT y
+FEINT, seguido por un segundo DIRECT independiente. **Saltar tutorial** entra
+en una partida limpia; al terminar puedes elegir **Jugar ahora**.
 
-Empieza en el 45 % inferior del campo y usa un dedo o el botón izquierdo del ratón.
+- DIRECT: empieza abajo y desliza hacia arriba; inclina para apuntar.
+- LOB: sube con fuerza y termina con un pequeño gancho hacia abajo.
+- BOUNCE: empieza cerca del centro, baja y vuelve a subir formando una V.
+  Puedes empezar entre el 30% y el 55% de altura, dentro del 4–96% del ancho,
+  fuera del HUD. Ese inicio solo permite disparar una V completa.
+- ROSCA: sube primero, dibuja una barriga a izquierda o derecha y vuelve
+  subiendo. El final apunta; la barriga controla el giro.
+- FEINT: amaga lateralmente, frena o invierte y levanta el dedo. El balón queda
+  en la mano y no cuenta un tiro. **Empieza otro gesto para lanzar.**
 
-- DIRECT: desliza hacia arriba; inclina el gesto para apuntar.
-- LOB: sube y dibuja un pequeño gancho hacia abajo, terminando por encima del inicio.
-- BOUNCE: baja y vuelve a subir formando una V; el rebote depende de la física real.
-- ROSCA: sube, dibuja una barriga a izquierda/derecha y vuelve hacia la línea de tiro.
-- FEINT: empieza lateralmente, frena o invierte claramente y levanta el dedo.
-  El balón sigue en la mano y no cuenta ningún tiro. **Toca de nuevo y dibuja otro
-  gesto para lanzar**. El portero conserva su estado real; la finta no garantiza gol.
+Los resultados proceden de la física real. Ninguna técnica garantiza un gol.
+Prueba escritorio y móvil, en vertical y horizontal.
 
-Completa cinco tiros y reinicia. Comprueba móvil vertical/horizontal y escritorio.
-Las señales F5-A del portero muestran READ, HOLD, COMMIT y recuperación.
+## Rutas de prueba
 
-## Validation and release limitations
+- [Menú normal](https://mreyese.github.io/handball-threejs-demo/)
+- [Tutorial automático](https://mreyese.github.io/handball-threejs-demo/?tutorial&seed=71)
+- [Juego directo de diagnóstico](https://mreyese.github.io/handball-threejs-demo/?playtest&seed=71&quality=balanced)
 
-PLAYTEST only. Human validation pending. FULL_MILESTONE_ACCEPTED: NO.
-Private typecheck, 282 unit tests, asset audit and source-map-free production build
-pass. Local hosted-style normal-shot / desktop FEINT / mobile FEINT smoke passes.
-Five broader browser checks remain unresolved: two staged FEINT keeper-zone
-expectations, two 1920-wide terminal snapshot races and a touch commitment
-checkpoint. Capture reference mismatches and balanced/high profiling sample floors
-also remain unresolved. These results do not constitute full milestone acceptance.
-Deployment requires the requested explicit playtest waiver or resolved mandatory checks.
+`?playtest&trace` permite descargar trazas locales; no se suben al repositorio.
+Los gestos del tutorial son muestras sintéticas de enseñanza, no pruebas humanas.
 
-## Publication and recovery
+## Estado de validación
 
-The existing Pages workflow verifies the checked-in artifact, uploads `site/`,
-deploys with the official Pages actions and runs real pointer smoke on the URL.
-The source is built and tested privately; this public repository cannot rebuild it.
-Old source remains in historical Git commits/closed PRs; removing it from the
-current tree does not erase prior public copies.
+PLAYTEST para validación humana. **FULL_MILESTONE_ACCEPTED: NO.**
+Compilación, 288 pruebas unitarias, 18 pruebas de integración enfocadas, inicio
+público, ROSCA nativa y dev:smoke (3/3) aprobados. Revisión independiente aprobada.
+Persisten fallos de referencias de captura y mínimos de muestras de perfilado
+balanced/high. El perfil capture aprueba. No se actualizaron referencias ni se
+rebajaron puertas de calidad. La aceptación humana de los gestos sigue pendiente.
 
-The previous version is preserved at tag
-`backup/pre-gesture-v3-playtest-20261030-6aba313`, SHA
-`6aba3133019778c29af36c0017612e675fb781c1`.
-To roll back without publishing old source again, build that version privately
-without source maps, replace only `site/`, update its manifest and merge a normal
-rollback PR after checks. Never force-push main.
+`site/release.json` registra la procedencia y los hashes SHA-256 del paquete.
+La publicación actualiza solo el artefacto; el historial conserva las versiones
+anteriores para recuperación. El código original de versiones históricas que ya
+fuera público no se elimina reescribiendo el historial.
 
-[MIT License](LICENSE). Bundled Three.js is MIT licensed.
+[MIT License](LICENSE). Three.js conserva su licencia MIT en el paquete.
