@@ -1,23 +1,23 @@
 {
   "label": "PLAYTEST",
-  "sourceSha": "dbea62c8ed7deaae3774f50d70a8c7f9dbdaeafc",
+  "sourceSha": "f994c6df628625ac8893e04975c842254c6faa94",
   "fullMilestoneAccepted": false,
   "files": {
+    "assets/index-DXQybDbV.js": "c0674a7f1867b48e2dc95165416c5faeb31056491745876a8e50cc3ba9f0f543",
     "assets/index-DtXKwICQ.css": "95d6bcfad927e0bf7dc8e165fb02c1fccc1f8aeea11efbbb0434c995690faeac",
-    "assets/index-UXKsRgnQ.js": "30e8847f8d3c848b9242145df4cdb798dd40af12310f380241c74465b740a06c",
-    "index.html": "8d385fe42b5c76067525e2206a50559d1ec3be050509a6ca5103ed7cad68f773"
+    "index.html": "4a817a4e26a0a2d7d6728241e360f632119b898d9c7465349645a5fa1fae0fd5"
   },
   "knownLimitations": [
-    "Human desktop/mobile gesture and visual acceptance pending",
-    "Capture: seven baseline failures plus intentional hero-goal image-reference difference",
-    "Balanced/high profiling flight samples below unchanged minimum of 20"
+    "F6-R rebound-goal correction awaits human desktop/mobile acceptance",
+    "Historical capture failures and balanced/high profile sample-floor failures remain unaccepted",
+    "Full browser run:68/71; three expired-shot test reads corrected, affected Skip cases4/4; entire gate not repeated"
   ],
   "validation": {
-    "unitTests": 288,
-    "focusedBrowserTests": 18,
-    "publicMenu": "passed",
-    "nativeMirroredRosca": "passed",
+    "unitTests": 320,
     "devSmoke": "3/3 passed",
-    "captureProfile": "passed"
+    "nativeFloorToGoal": "2/2 passed",
+    "correctedSkipCases": "4/4 passed",
+    "independentReview": "approved",
+    "gesturesFeintTutorial": "human validated before F6-R"
   }
 }
