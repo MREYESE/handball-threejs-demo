@@ -1,15 +1,23 @@
 {
   "label": "PLAYTEST",
-  "sourceSha": "d14a427de2893349623ac0aacd5c3e533f620832",
+  "sourceSha": "dbea62c8ed7deaae3774f50d70a8c7f9dbdaeafc",
   "fullMilestoneAccepted": false,
   "files": {
-    "index.html": "1ade88cf35715d5f7bee1a6ed63712ababc784a54d05a5e7768afb2308d26eb5",
-    "assets/index-BpFIrPBs.js": "366219072854cd71ce4abcf6f893c5f2aec6170cba1c3f3f30942468fe5f5331",
-    "assets/index-Bg7AAJqy.css": "ff7d2f9f51e95c9df32ab08c078d5430afef09349e9fbc433b494597eec7ac87"
+    "assets/index-DtXKwICQ.css": "95d6bcfad927e0bf7dc8e165fb02c1fccc1f8aeea11efbbb0434c995690faeac",
+    "assets/index-UXKsRgnQ.js": "30e8847f8d3c848b9242145df4cdb798dd40af12310f380241c74465b740a06c",
+    "index.html": "8d385fe42b5c76067525e2206a50559d1ec3be050509a6ca5103ed7cad68f773"
   },
   "knownLimitations": [
-    "Five unresolved broader browser checks; local hosted smoke previously passed 3/3",
-    "Capture reference and profiling gates unresolved",
-    "Human desktop/mobile acceptance pending"
-  ]
+    "Human desktop/mobile gesture and visual acceptance pending",
+    "Capture: seven baseline failures plus intentional hero-goal image-reference difference",
+    "Balanced/high profiling flight samples below unchanged minimum of 20"
+  ],
+  "validation": {
+    "unitTests": 288,
+    "focusedBrowserTests": 18,
+    "publicMenu": "passed",
+    "nativeMirroredRosca": "passed",
+    "devSmoke": "3/3 passed",
+    "captureProfile": "passed"
+  }
 }
