@@ -1,23 +1,24 @@
 {
   "label": "PLAYTEST",
-  "sourceSha": "f994c6df628625ac8893e04975c842254c6faa94",
+  "feature": "F7 Arcade Movement, Auto Dribbling & Smart Camera",
+  "sourceSha": "8bad0fe880761400d015aa665f70e2245ca28e59",
   "fullMilestoneAccepted": false,
+  "humanAccepted": false,
   "files": {
-    "assets/index-DXQybDbV.js": "c0674a7f1867b48e2dc95165416c5faeb31056491745876a8e50cc3ba9f0f543",
-    "assets/index-DtXKwICQ.css": "95d6bcfad927e0bf7dc8e165fb02c1fccc1f8aeea11efbbb0434c995690faeac",
-    "index.html": "4a817a4e26a0a2d7d6728241e360f632119b898d9c7465349645a5fa1fae0fd5"
+    "assets/index-CmU-WRm3.css": "7210b093abe2d43e8de2422ee18359b995762f71d42016627f9d97091da24e90",
+    "assets/index-DarevIT2.js": "e020f6d2ebfc61aa6612381460ff534ad0583837db6f77c8ef8a6611963c8f4c",
+    "index.html": "c9a0a0421b7384191d51c5e9ead328d69ebf90f81886bf504ffdd80b600eec8d"
   },
   "knownLimitations": [
-    "F6-R rebound-goal correction awaits human desktop/mobile acceptance",
-    "Historical capture failures and balanced/high profile sample-floor failures remain unaccepted",
-    "Full browser run:68/71; three expired-shot test reads corrected, affected Skip cases4/4; entire gate not repeated"
+    "Human gameplay acceptance is pending",
+    "Full validation:359/359 units and90/90 functional cases pass; nine capture failures reproduced on pre-F7 baseline",
+    "High headless profile unresolved:19 measured samples against minimum20",
+    "Software rendering is substantially slower than the measured Intel hardware movement run"
   ],
   "validation": {
-    "unitTests": 320,
-    "devSmoke": "3/3 passed",
-    "nativeFloorToGoal": "2/2 passed",
-    "correctedSkipCases": "4/4 passed",
-    "independentReview": "approved",
-    "gesturesFeintTutorial": "human validated before F6-R"
+    "unitTests": "359/359 passed",
+    "functionalBrowserTests": "90/90 passed",
+    "independentReview": "approved for local human playtesting",
+    "hardwareMovement": "approximately60 FPS on recorded Intel host; not universal device certification"
   }
 }
