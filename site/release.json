@@ -1,24 +1,26 @@
 {
   "label": "PLAYTEST",
-  "feature": "F7 Arcade Movement, Auto Dribbling & Smart Camera",
-  "sourceSha": "8bad0fe880761400d015aa665f70e2245ca28e59",
+  "feature": "F8 Twin-Stick Attack and Technical Gesture Modes",
+  "sourceSha": "5674084a5a8240df005eadce88aa8f977c8d6f8b",
   "fullMilestoneAccepted": false,
   "humanAccepted": false,
   "files": {
-    "assets/index-CmU-WRm3.css": "7210b093abe2d43e8de2422ee18359b995762f71d42016627f9d97091da24e90",
-    "assets/index-DarevIT2.js": "e020f6d2ebfc61aa6612381460ff534ad0583837db6f77c8ef8a6611963c8f4c",
-    "index.html": "c9a0a0421b7384191d51c5e9ead328d69ebf90f81886bf504ffdd80b600eec8d"
+    "index.html": "90ed994615a024eaf271048d8b5527286ff87703cfab6ad98f4a69b656ce8d65",
+    "assets/index-CDSoF1mk.js": "6a02e80629dcbc8770355b49312074c06210abc36e1fc85287c3e4f5b872dab7",
+    "assets/index-B-mOetCw.css": "bc8cc276e772bd8a3b86ac5af3ab36a774ccc7873f93df5b5ec3e4a018258d9c"
   },
   "knownLimitations": [
-    "Human gameplay acceptance is pending",
-    "Full validation:359/359 units and90/90 functional cases pass; nine capture failures reproduced on pre-F7 baseline",
-    "High headless profile unresolved:19 measured samples against minimum20",
-    "Software rendering is substantially slower than the measured Intel hardware movement run"
+    "Human touchscreen/gameplay acceptance is pending",
+    "Full functional suite:107/108 pass; queued-resize failure reproduced on unchanged F7",
+    "Nine capture failures reproduced on unchanged F7; no references updated",
+    "SwiftShader software rendering is substantially slower than measured Intel hardware"
   ],
   "validation": {
-    "unitTests": "359/359 passed",
-    "functionalBrowserTests": "90/90 passed",
-    "independentReview": "approved for local human playtesting",
-    "hardwareMovement": "approximately60 FPS on recorded Intel host; not universal device certification"
+    "unitTests": "386/386 passed",
+    "f8NativeBrowserTests": "18/18 passed",
+    "functionalBrowserTests": "107/108 passed; sole failure reproduced without F8",
+    "qualityProfiles": "balanced/high/capture passed; software profiles remain unverified_software_renderer",
+    "independentReview": "approved for human playtesting with inherited gate failures",
+    "hardwareMovementAndAim": "about60 FPS and17.7ms p95 on recorded Intel/Mesa host; not universal device certification"
   }
 }
