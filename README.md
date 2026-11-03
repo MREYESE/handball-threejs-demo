@@ -2,7 +2,7 @@
 
 [**JUGAR / ARCADE / TUTORIAL**](https://mreyese.github.io/handball-threejs-demo/)
 
-Versión **PLAYTEST F8** para probar control con dos joysticks, carga de tiro, bote automático y cámara de seguimiento.
+Versión **PLAYTEST F9**, opcional mediante `?arcade&f9=on`, para probar preparación del tiro, cámara y contactos. La ruta Arcade habitual conserva el comportamiento F8.
 La aceptación humana sigue pendiente; no se declara aceptado el hito completo.
 
 Este repositorio publica únicamente el juego compilado en HTML, CSS y JavaScript,
@@ -46,20 +46,16 @@ Prueba especialmente los dos dedos simultáneos, cambios rápidos de dirección,
 ambas roscas, LOB, V-BOUNCE, FEINT seguido de tiro, vertical/horizontal y cinco
 lanzamientos seguidos de reinicio. Comprueba la comodidad de la cámara y el bote.
 
-## Estado de validación
+## Prueba F9 y estado de validación
 
-- Compilación, 386 pruebas unitarias y los 18 casos nativos F8 aprobados;
-  107 de 108 casos funcionales pasan. El fallo de cancelación durante redimensionado
-  también se reproduce en el F7 sin cambios.
-- Diez rondas Arcade con recursos y listeners estables; revisión independiente
-  aprobada para prueba humana local.
-- Aproximadamente 60 FPS de movimiento y apuntado en el Intel probado; no es una garantía
-  para todos los dispositivos. La renderización por software es más lenta.
-- La puerta completa sigue fallando por nueve comprobaciones de captura también
-  reproducidas en F7 sin cambios, además del caso de redimensionado descrito.
-  Los tres perfiles de calidad pasan; los de software mantienen su estado de
-  rendimiento no verificado. No se rebajaron las comprobaciones.
-- **F8_HUMAN_ACCEPTED: NO. FULL_MILESTONE_ACCEPTED: NO.**
+- [F9: soltar para lanzar](https://mreyese.github.io/handball-threejs-demo/?arcade&f9=on)
+- [F9: temporizador automático experimental](https://mreyese.github.io/handball-threejs-demo/?arcade&f9=on&timeout=hard)
+- Compilación sin mapas de código, comprobación TypeScript y 410 pruebas unitarias aprobadas.
+- El paquete exacto se prueba con ratón y eventos táctiles nativos: un lanzamiento aceptado y resuelto por modalidad, sin grabación de gestos.
+- Esta publicación incorpora cambios locales aún sin commit en el repositorio de origen; `sourceSha` identifica su commit base.
+- No se repitieron las puertas completas de regresión, capturas o rendimiento para esta publicación. Los fallos heredados descritos en versiones anteriores siguen pendientes; no se declara que estén resueltos.
+- Prueba ambos órdenes de contacto, movimiento mientras apuntas, cancelación, vertical/horizontal y reinicio tras cinco tiros. Compara el temporizador normal con el automático.
+- **F9_HUMAN_ACCEPTED: NO. FULL_MILESTONE_ACCEPTED: NO.**
 
 `site/release.json` registra la procedencia y los hashes SHA-256 del paquete.
 Las versiones compiladas anteriores permanecen en el historial para recuperación.
